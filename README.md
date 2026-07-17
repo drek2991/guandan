@@ -26,7 +26,7 @@ The four application and package directories are managed as npm workspaces from 
 
 ## Runtime
 
-Use Node.js `22.13.1`, pinned in `.nvmrc`. This satisfies the current Expo toolchain's Node.js 22.13.x-or-newer requirement and keeps local and automated environments aligned. The root package permits compatible Node.js 22 releases from 22.13.0 onward. With nvm:
+Expo SDK 54 requires Node.js `20.19.4` or newer. This repository standardizes on Node.js `22.13.1`, pinned in `.nvmrc`, to keep local and automated environments consistent. The root package permits compatible Node.js 22 releases from 22.13.0 onward. With nvm:
 
 ```sh
 nvm use
