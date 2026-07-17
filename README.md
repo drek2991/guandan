@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. They contain placeholders only during this milestone; the mobile app, server, persistence, and game logic have not been scaffolded.
+The four application and package directories are managed as npm workspaces from the repository root. The mobile workspace contains the initial Expo scaffold; the server, persistence, and game logic have not been scaffolded.
 
 ## Runtime
 
@@ -31,6 +31,13 @@ Use Node.js `22.13.1`, pinned in `.nvmrc`. This satisfies the current Expo toolc
 ```sh
 nvm use
 npm install
+```
+
+Start the Expo Go development server or run the mobile TypeScript check from the repository root:
+
+```sh
+npm run mobile:start
+npm run mobile:typecheck
 ```
 
 ## Zero-budget mobile testing

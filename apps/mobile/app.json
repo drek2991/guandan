@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Guandan",
+    "slug": "guandan",
+    "version": "0.1.0",
+    "scheme": "guandan",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
