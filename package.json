@@ -1,0 +1,16 @@
+{
+  "name": "guandan",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Guandan mobile application monorepo",
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "apps/mobile",
+    "apps/server",
+    "packages/game-domain",
+    "packages/protocol"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "@guandan/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Placeholder for the shared client-server protocol"
+}
