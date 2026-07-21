@@ -35,4 +35,4 @@ A healthy process returns HTTP 200 with:
 }
 ```
 
-Socket.IO currently exposes only the temporary `scaffold:ping` acknowledgement used to verify connectivity. It is not part of the shared game protocol and will be replaced in a later milestone.
+Socket.IO currently exposes only the temporary `scaffold:ping` acknowledgement from `@guandan/protocol` to verify shared-package connectivity. It will be replaced by the gameplay protocol in a later milestone.

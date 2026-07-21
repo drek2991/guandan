@@ -9,11 +9,14 @@
   "scripts": {
     "mobile:start": "npm run start --workspace @guandan/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @guandan/mobile",
-    "server:dev": "npm run dev --workspace @guandan/server",
-    "server:typecheck": "npm run typecheck --workspace @guandan/server",
-    "server:test": "npm run test --workspace @guandan/server",
-    "server:build": "npm run build --workspace @guandan/server",
-    "server:start": "npm run start --workspace @guandan/server"
+    "shared:typecheck": "npm run typecheck --workspace @guandan/game-domain --workspace @guandan/protocol",
+    "shared:build": "npm run build --workspace @guandan/game-domain --workspace @guandan/protocol",
+    "server:dev": "npm run shared:build && npm run dev --workspace @guandan/server",
+    "server:typecheck": "npm run shared:build && npm run typecheck --workspace @guandan/server",
+    "server:test": "npm run shared:build && npm run test --workspace @guandan/server",
+    "server:build": "npm run shared:build && npm run build --workspace @guandan/server",
+    "server:start": "npm run start --workspace @guandan/server",
+    "build": "npm run shared:build && npm run build --workspace @guandan/server"
   },
   "engines": {
     "node": ">=22.13.0 <23",

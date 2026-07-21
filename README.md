@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. The mobile and authoritative server workspaces contain their initial scaffolds; persistence and game logic have not been implemented.
+The four application and package directories are managed as npm workspaces from the repository root. The mobile and authoritative server applications and both shared TypeScript packages contain their initial scaffolds; persistence and game logic have not been implemented.
 
 ## Runtime
 
@@ -40,6 +40,14 @@ npm run mobile:start
 npm run mobile:typecheck
 ```
 
+Verify and build the shared packages, or build all current production packages in dependency order:
+
+```sh
+npm run shared:typecheck
+npm run shared:build
+npm run build
+```
+
 Develop, verify, build, or run the authoritative server from the repository root:
 
 ```sh
@@ -49,6 +57,8 @@ npm run server:test
 npm run server:build
 npm run server:start
 ```
+
+Server development, type-check, test, and build commands compile the shared packages first so package-root imports resolve from a clean checkout.
 
 ## Zero-budget mobile testing
 

@@ -12,6 +12,7 @@
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
+    "@guandan/protocol": "0.1.0",
     "express": "^5.2.1",
     "socket.io": "^4.8.3"
   },

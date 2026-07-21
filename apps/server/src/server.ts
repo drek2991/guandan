@@ -1,13 +1,13 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 
-import { Server as SocketIoServer } from 'socket.io';
-
-import { createApp } from './app.js';
 import {
   SCAFFOLD_PING_EVENT,
   type ScaffoldClientToServerEvents,
   type ScaffoldServerToClientEvents,
-} from './scaffold-events.js';
+} from '@guandan/protocol';
+import { Server as SocketIoServer } from 'socket.io';
+
+import { createApp } from './app.js';
 
 export interface GuandanServer {
   httpServer: HttpServer;

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
-import { io as createSocketClient, type Socket } from 'socket.io-client';
-import request from 'supertest';
-
-import { createApp } from '../src/app.js';
 import {
   SCAFFOLD_PING_EVENT,
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
   type ScaffoldServerToClientEvents,
-} from '../src/scaffold-events.js';
+} from '@guandan/protocol';
+import { io as createSocketClient, type Socket } from 'socket.io-client';
+import request from 'supertest';
+
+import { createApp } from '../src/app.js';
 import { startServer, type RunningServer } from '../src/start.js';
 
 const app = createApp();
