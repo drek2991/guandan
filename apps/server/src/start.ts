@@ -10,7 +10,9 @@ export interface RunningServer {
   close: () => Promise<void>;
 }
 
-export async function startServer(config: ServerConfig = readConfig()): Promise<RunningServer> {
+export async function startServer(
+  config: ServerConfig = readConfig(),
+): Promise<RunningServer> {
   const server = createGuandanServer();
 
   try {

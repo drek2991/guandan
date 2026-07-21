@@ -7,7 +7,9 @@ export interface ServerConfig {
   port: number;
 }
 
-export function readConfig(environment: NodeJS.ProcessEnv = process.env): ServerConfig {
+export function readConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): ServerConfig {
   return {
     host: '0.0.0.0',
     port: parsePort(environment.PORT),
@@ -22,7 +24,9 @@ function parsePort(value: string | undefined): number {
   const port = Number(value);
 
   if (!Number.isInteger(port) || port < MIN_PORT || port > MAX_PORT) {
-    throw new Error(`PORT must be an integer between ${MIN_PORT} and ${MAX_PORT}`);
+    throw new Error(
+      `PORT must be an integer between ${MIN_PORT} and ${MAX_PORT}`,
+    );
   }
 
   return port;

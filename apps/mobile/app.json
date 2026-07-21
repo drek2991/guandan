@@ -9,9 +9,7 @@
     "ios": {
       "supportsTablet": false
     },
-    "plugins": [
-      "expo-router"
-    ],
+    "plugins": ["expo-router"],
     "experiments": {
       "typedRoutes": true
     }

@@ -1,4 +1,7 @@
-import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import {
+  createServer as createHttpServer,
+  type Server as HttpServer,
+} from 'node:http';
 
 import {
   SCAFFOLD_PING_EVENT,
@@ -11,7 +14,10 @@ import { createApp } from './app.js';
 
 export interface GuandanServer {
   httpServer: HttpServer;
-  io: SocketIoServer<ScaffoldClientToServerEvents, ScaffoldServerToClientEvents>;
+  io: SocketIoServer<
+    ScaffoldClientToServerEvents,
+    ScaffoldServerToClientEvents
+  >;
   close: () => Promise<void>;
 }
 
@@ -43,11 +49,14 @@ export function createGuandanServer(): GuandanServer {
 }
 
 function closeServer(
-  io: SocketIoServer<ScaffoldClientToServerEvents, ScaffoldServerToClientEvents>,
+  io: SocketIoServer<
+    ScaffoldClientToServerEvents,
+    ScaffoldServerToClientEvents
+  >,
   httpServer: HttpServer,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    io.close(() => {
+    void io.close(() => {
       if (!httpServer.listening) {
         resolve();
         return;

@@ -11,7 +11,12 @@ const notFoundHandler: RequestHandler = (_request, response) => {
   });
 };
 
-const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+const errorHandler: ErrorRequestHandler = (
+  error,
+  _request,
+  response,
+  _next,
+) => {
   console.error('Unexpected HTTP error', error);
   response.status(500).json({
     error: 'internal_server_error',

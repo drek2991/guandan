@@ -6,7 +6,9 @@ async function main(): Promise<void> {
   const runningServer = await startServer(config);
 
   registerShutdownHandlers(runningServer);
-  console.log(`Guandan server listening on ${config.host}:${runningServer.address.port}`);
+  console.log(
+    `Guandan server listening on ${config.host}:${runningServer.address.port}`,
+  );
 }
 
 main().catch((error: unknown) => {

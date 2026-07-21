@@ -4,19 +4,34 @@
   "private": true,
   "description": "Guandan mobile application monorepo",
   "devDependencies": {
-    "react": "19.1.0"
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "expo-doctor": "^1.20.1",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.5",
+    "react": "19.1.0",
+    "typescript-eslint": "^8.65.0"
   },
   "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run shared:build && eslint . --max-warnings 0",
     "mobile:start": "npm run start --workspace @guandan/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @guandan/mobile",
     "shared:typecheck": "npm run typecheck --workspace @guandan/game-domain --workspace @guandan/protocol",
     "shared:build": "npm run build --workspace @guandan/game-domain --workspace @guandan/protocol",
     "server:dev": "npm run shared:build && npm run dev --workspace @guandan/server",
-    "server:typecheck": "npm run shared:build && npm run typecheck --workspace @guandan/server",
+    "server:typecheck": "npm run shared:build && npm run typecheck --workspace @guandan/server && tsc --project apps/server/tsconfig.test.json",
     "server:test": "npm run shared:build && npm run test --workspace @guandan/server",
     "server:build": "npm run shared:build && npm run build --workspace @guandan/server",
     "server:start": "npm run start --workspace @guandan/server",
-    "build": "npm run shared:build && npm run build --workspace @guandan/server"
+    "typecheck": "npm run shared:typecheck && npm run mobile:typecheck && npm run server:typecheck",
+    "test": "npm run server:test && npm run packages:smoke",
+    "packages:smoke": "node scripts/verify-package-imports.mjs",
+    "build": "npm run shared:build && npm run build --workspace @guandan/server",
+    "expo:doctor": "cd apps/mobile && expo-doctor",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run expo:doctor"
   },
   "engines": {
     "node": ">=22.13.0 <23",

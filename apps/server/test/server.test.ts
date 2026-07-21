@@ -50,7 +50,10 @@ describe('HTTP scaffold', () => {
 
 describe('Socket.IO scaffold', () => {
   let runningServer: RunningServer;
-  let client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>;
+  let client: Socket<
+    ScaffoldServerToClientEvents,
+    ScaffoldClientToServerEvents
+  >;
 
   before(async () => {
     runningServer = await startServer({
@@ -58,11 +61,14 @@ describe('Socket.IO scaffold', () => {
       port: 0,
     });
 
-    client = createSocketClient(`http://127.0.0.1:${runningServer.address.port}`, {
-      forceNew: true,
-      reconnection: false,
-      transports: ['websocket'],
-    });
+    client = createSocketClient(
+      `http://127.0.0.1:${runningServer.address.port}`,
+      {
+        forceNew: true,
+        reconnection: false,
+        transports: ['websocket'],
+      },
+    );
 
     await waitForConnection(client);
   });

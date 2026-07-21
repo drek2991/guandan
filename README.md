@@ -58,7 +58,30 @@ npm run server:build
 npm run server:start
 ```
 
-Server development, type-check, test, and build commands compile the shared packages first so package-root imports resolve from a clean checkout.
+Server development, type-check, test, and build commands compile the shared packages first so package-root imports resolve from a clean checkout. Restart the server development process after changing a shared package so it reloads the new compiled output.
+
+## Quality checks
+
+Run individual quality gates or the complete repository verification suite from the root:
+
+```sh
+npm run format
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run expo:doctor
+npm run verify
+```
+
+`format` is the only mutating quality command. `verify` runs formatting, lint, workspace type-checking, server tests, public package-import checks, the clean production build, and Expo Doctor without starting development servers. GitHub Actions runs `npm ci` followed by `npm run verify` for pull requests and branch pushes using Node.js 22.13.1.
+
+## Dependency security
+
+As of July 21, 2026, `npm audit` reports 13 moderate findings and no high or critical findings. The 13 package records derive from two transitive Expo SDK 54 tooling advisories: PostCSS through Metro configuration and `uuid` through Expo config plugins and `xcode`. The authoritative production server and shared packages have no audit findings.
+
+The remaining findings are temporarily accepted because the repository already uses the latest compatible Expo SDK 54 packages, neither affected path is part of the normal native iPhone runtime, and remediation requires unsupported transitive overrides or an Expo major upgrade. Do not use `npm audit fix --force`. Reassess these findings when upgrading Expo, when Expo publishes compatible backports, or before adding web/CSS processing, custom config plugins, or native prebuild inputs. Any new high or critical finding requires blocking review.
 
 ## Zero-budget mobile testing
 
