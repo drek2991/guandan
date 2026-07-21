@@ -8,7 +8,12 @@
   },
   "scripts": {
     "mobile:start": "npm run start --workspace @guandan/mobile",
-    "mobile:typecheck": "npm run typecheck --workspace @guandan/mobile"
+    "mobile:typecheck": "npm run typecheck --workspace @guandan/mobile",
+    "server:dev": "npm run dev --workspace @guandan/server",
+    "server:typecheck": "npm run typecheck --workspace @guandan/server",
+    "server:test": "npm run test --workspace @guandan/server",
+    "server:build": "npm run build --workspace @guandan/server",
+    "server:start": "npm run start --workspace @guandan/server"
   },
   "engines": {
     "node": ">=22.13.0 <23",

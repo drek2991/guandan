@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. The mobile workspace contains the initial Expo scaffold; the server, persistence, and game logic have not been scaffolded.
+The four application and package directories are managed as npm workspaces from the repository root. The mobile and authoritative server workspaces contain their initial scaffolds; persistence and game logic have not been implemented.
 
 ## Runtime
 
@@ -38,6 +38,16 @@ Start the Expo Go development server or run the mobile TypeScript check from the
 ```sh
 npm run mobile:start
 npm run mobile:typecheck
+```
+
+Develop, verify, build, or run the authoritative server from the repository root:
+
+```sh
+npm run server:dev
+npm run server:typecheck
+npm run server:test
+npm run server:build
+npm run server:start
 ```
 
 ## Zero-budget mobile testing
