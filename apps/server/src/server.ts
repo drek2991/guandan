@@ -11,6 +11,7 @@ import {
 import { Server as SocketIoServer } from 'socket.io';
 
 import { createApp } from './app.js';
+import type { Database } from './database.js';
 
 export interface GuandanServer {
   httpServer: HttpServer;
@@ -21,8 +22,8 @@ export interface GuandanServer {
   close: () => Promise<void>;
 }
 
-export function createGuandanServer(): GuandanServer {
-  const app = createApp();
+export function createGuandanServer(database: Database): GuandanServer {
+  const app = createApp(database);
   const httpServer = createHttpServer(app);
   const io = new SocketIoServer<
     ScaffoldClientToServerEvents,

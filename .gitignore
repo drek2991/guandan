@@ -27,6 +27,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.certs/
 
 # Logs
 *.log

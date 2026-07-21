@@ -11,21 +11,77 @@ import { io as createSocketClient, type Socket } from 'socket.io-client';
 import request from 'supertest';
 
 import { createApp } from '../src/app.js';
+import type { Database } from '../src/database.js';
+import { createGuandanServer } from '../src/server.js';
 import { startServer, type RunningServer } from '../src/start.js';
 
-const app = createApp();
+const READY_ERROR_MARKER = 'database-detail-marker';
+
+function createFakeDatabase(options?: {
+  checkError?: Error;
+  onCheck?: () => void;
+  onClose?: () => void;
+}): Database {
+  return {
+    async check(): Promise<void> {
+      options?.onCheck?.();
+      if (options?.checkError !== undefined) {
+        throw options.checkError;
+      }
+    },
+    async close(): Promise<void> {
+      options?.onClose?.();
+    },
+  };
+}
 
 describe('HTTP scaffold', () => {
-  it('returns stable service information from GET /health', async () => {
+  it('returns stable service information from GET /health without checking the database', async () => {
+    let checkCalls = 0;
+    const app = createApp(
+      createFakeDatabase({
+        checkError: new Error(READY_ERROR_MARKER),
+        onCheck: () => {
+          checkCalls += 1;
+        },
+      }),
+    );
     const response = await request(app).get('/health').expect(200);
 
     assert.deepEqual(response.body, {
       status: 'healthy',
       service: 'guandan-server',
     });
+    assert.equal(checkCalls, 0);
+  });
+
+  it('returns HTTP 200 when the database is ready', async () => {
+    const app = createApp(createFakeDatabase());
+    const response = await request(app).get('/ready').expect(200);
+
+    assert.deepEqual(response.body, {
+      status: 'ready',
+      service: 'guandan-server',
+    });
+  });
+
+  it('returns a sanitized HTTP 503 when the database is not ready', async () => {
+    const app = createApp(
+      createFakeDatabase({
+        checkError: new Error(READY_ERROR_MARKER),
+      }),
+    );
+    const response = await request(app).get('/ready').expect(503);
+
+    assert.deepEqual(response.body, {
+      status: 'not_ready',
+      service: 'guandan-server',
+    });
+    assert.equal(response.text.includes(READY_ERROR_MARKER), false);
   });
 
   it('returns a controlled JSON response for unknown routes', async () => {
+    const app = createApp(createFakeDatabase());
     const response = await request(app).get('/missing').expect(404);
 
     assert.match(response.headers['content-type'] ?? '', /^application\/json/);
@@ -35,6 +91,7 @@ describe('HTTP scaffold', () => {
   });
 
   it('does not expose stack traces in unexpected HTTP error responses', async () => {
+    const app = createApp(createFakeDatabase());
     const response = await request(app)
       .post('/health')
       .set('content-type', 'application/json')
@@ -56,10 +113,21 @@ describe('Socket.IO scaffold', () => {
   >;
 
   before(async () => {
-    runningServer = await startServer({
-      host: '127.0.0.1',
-      port: 0,
-    });
+    const database = createFakeDatabase();
+    runningServer = await startServer(
+      {
+        database: {
+          caPath: 'test-ca.crt',
+          connectionString: 'test-configuration',
+        },
+        host: '127.0.0.1',
+        port: 0,
+      },
+      {
+        createDatabase: () => database,
+        createServer: createGuandanServer,
+      },
+    );
 
     client = createSocketClient(
       `http://127.0.0.1:${runningServer.address.port}`,
