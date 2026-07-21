@@ -18,7 +18,11 @@ npm run server:start
 - `server:build` compiles production JavaScript into `apps/server/dist`.
 - `server:start` runs the compiled JavaScript from `dist`.
 
-The server reads `PORT` and defaults to port `3000`. It binds to `0.0.0.0` for local and deployment compatibility.
+The development and production-start commands optionally load `.env` from the repository root. Copy `.env.example` to `.env` only when local overrides are needed; shell and deployment variables take precedence over the file.
+
+The server reads `PORT`, defaults to `3000`, and binds to `0.0.0.0` for local and deployment compatibility. Optional `NODE_ENV` values are `development`, `test`, and `production`. Invalid values fail before the server listens.
+
+Private service credentials will belong only on this authoritative server. They must not be logged or exposed through Expo public variables. Supabase credentials are not configured yet.
 
 ## Health check
 

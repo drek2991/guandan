@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 
-import { readConfig, type ServerConfig } from './config.js';
+import type { ServerConfig } from './config.js';
 import { createGuandanServer, type GuandanServer } from './server.js';
 
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
@@ -11,7 +11,7 @@ export interface RunningServer {
 }
 
 export async function startServer(
-  config: ServerConfig = readConfig(),
+  config: ServerConfig,
 ): Promise<RunningServer> {
   const server = createGuandanServer();
 

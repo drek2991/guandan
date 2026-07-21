@@ -16,6 +16,7 @@
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "secrets:check": "node scripts/verify-secret-safety.mjs",
     "lint": "npm run shared:build && eslint . --max-warnings 0",
     "mobile:start": "npm run start --workspace @guandan/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @guandan/mobile",
@@ -31,7 +32,7 @@
     "packages:smoke": "node scripts/verify-package-imports.mjs",
     "build": "npm run shared:build && npm run build --workspace @guandan/server",
     "expo:doctor": "cd apps/mobile && expo-doctor",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run expo:doctor"
+    "verify": "npm run secrets:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run expo:doctor"
   },
   "engines": {
     "node": ">=22.13.0 <23",

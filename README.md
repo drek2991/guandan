@@ -60,6 +60,26 @@ npm run server:start
 
 Server development, type-check, test, and build commands compile the shared packages first so package-root imports resolve from a clean checkout. Restart the server development process after changing a shared package so it reloads the new compiled output.
 
+## Environment configuration
+
+Copy the committed example only when local overrides are needed:
+
+```sh
+cp .env.example .env
+```
+
+The server development and compiled-start commands optionally load the root `.env`; shell and deployment variables take precedence. Supported server values are optional `PORT` (default `3000`) and optional `NODE_ENV` (`development`, `test`, or `production`). Invalid values fail before the server listens.
+
+Mobile and server configuration have separate trust boundaries:
+
+- Future client-visible values must use `EXPO_PUBLIC_`. Expo embeds them in the application bundle, so they are public—not secrets.
+- The mobile app must never receive database credentials, service-role keys, room passwords, reconnect credentials, signing secrets, or other privileged configuration.
+- The authoritative server owns all future private service credentials and must not print them in logs.
+- Real `.env` files are ignored and must never be committed. `.env.example` contains only non-secret examples.
+- The mobile scaffold does not connect to the server or Supabase. Real Supabase and Render configuration is not present yet.
+
+Tests inject configuration or use safe defaults, and GitHub Actions requires no secrets. The `secrets:check` quality gate rejects tracked real environment files and high-confidence credential patterns without printing matched values.
+
 ## Quality checks
 
 Run individual quality gates or the complete repository verification suite from the root:
@@ -67,6 +87,7 @@ Run individual quality gates or the complete repository verification suite from 
 ```sh
 npm run format
 npm run format:check
+npm run secrets:check
 npm run lint
 npm run typecheck
 npm test
@@ -75,7 +96,7 @@ npm run expo:doctor
 npm run verify
 ```
 
-`format` is the only mutating quality command. `verify` runs formatting, lint, workspace type-checking, server tests, public package-import checks, the clean production build, and Expo Doctor without starting development servers. GitHub Actions runs `npm ci` followed by `npm run verify` for pull requests and branch pushes using Node.js 22.13.1.
+`format` is the only mutating quality command. `verify` runs secret safety, formatting, lint, workspace type-checking, server tests, public package-import checks, the clean production build, and Expo Doctor without starting development servers. GitHub Actions runs `npm ci` followed by `npm run verify` for pull requests and branch pushes using Node.js 22.13.1.
 
 ## Dependency security
 
