@@ -17,7 +17,7 @@ The repository's `.nvmrc` pins Node.js 22.13.1. Do not add `NODE_VERSION`, anoth
 
 The service uses `/ready` as its HTTP health check because the authoritative server is operationally usable only when PostgreSQL is available. `/health` remains a process-liveness endpoint and never queries the database. Render supplies `PORT`; it must not be configured manually.
 
-Automatic deployments track `main` and use `autoDeployTrigger: checksPass`, so Render waits for linked GitHub checks. The existing `Quality gates / verify` workflow runs for pushes to `main`. Render treats successful, neutral, and skipped GitHub check conclusions as passing and does not deploy when no checks are detected or a check fails. A 60-second shutdown allowance gives the existing `SIGTERM` handler time to close Socket.IO, HTTP, and the PostgreSQL pool.
+Automatic deployments track `main` and use `autoDeployTrigger: checksPass`, so Render waits for linked GitHub checks. The existing `Quality gates / verify` workflow runs for pushes to `main`. Render treats successful, neutral, and skipped GitHub check conclusions as passing and does not deploy when no checks are detected or a check fails. Render does not support a configurable maximum shutdown delay on free services, so the Blueprint omits that paid-tier setting; the existing `SIGTERM` handler still closes Socket.IO, HTTP, and the PostgreSQL pool within Render's platform-managed shutdown window.
 
 Render assigns a public HTTPS subdomain. The Blueprint explicitly enables it but does not hard-code the eventual hostname.
 
