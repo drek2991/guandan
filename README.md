@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. The mobile and authoritative server applications and both shared TypeScript packages contain their initial scaffolds; persistence and game logic have not been implemented.
+The four application and package directories are managed as npm workspaces from the repository root. M0-009 adds one isolated infrastructure smoke table and a mobile verification screen; production persistence and game logic remain unimplemented.
 
 ## Runtime
 
@@ -36,8 +36,9 @@ npm install
 Start the Expo Go development server or run the mobile TypeScript check from the repository root:
 
 ```sh
-npm run mobile:start
+EXPO_PUBLIC_SERVER_URL=https://your-server.example npm run mobile:start
 npm run mobile:typecheck
+npm run mobile:test
 ```
 
 Verify and build the shared packages, or build all current production packages in dependency order:
@@ -71,15 +72,15 @@ cp .env.example .env
 
 The server development and compiled-start commands optionally load the root `.env`; shell and deployment variables take precedence. Supported values are optional `PORT` (default `3000`), optional `NODE_ENV` (`development`, `test`, or `production`), and required server-private `DATABASE_URL`. Invalid values fail before the server listens.
 
-`DATABASE_URL` must be the Supabase Postgres **Session pooler** URL. The server requires verified TLS connectivity using `DATABASE_CA_PATH`, which points to the ignored Supabase CA certificate downloaded from Database Settings → SSL Configuration. The connection URL may omit `sslmode` or contain one `sslmode=require`; conflicting SSL settings are rejected. It is used only by the authoritative server through a bounded `pg` pool. Startup verifies the database before listening, `/ready` performs a sanitized readiness query, and shutdown closes both network and database resources. Tests and GitHub Actions use fakes and require no database secret. No tables, migrations, or application persistence exist yet.
+`DATABASE_URL` must be the Supabase Postgres **Session pooler** URL. The server requires verified TLS connectivity using `DATABASE_CA_PATH`, which points to the ignored Supabase CA certificate downloaded from Database Settings → SSL Configuration. The connection URL may omit `sslmode` or contain one `sslmode=require`; conflicting SSL settings are rejected. It is used only by the authoritative server through a bounded `pg` pool. Startup verifies the database before listening, `/ready` performs a sanitized readiness query, and shutdown closes both network and database resources. Tests and GitHub Actions use fakes and require no database secret. The only table and migration are the isolated M0-009 infrastructure smoke probe; no application persistence exists.
 
 Mobile and server configuration have separate trust boundaries:
 
-- Future client-visible values must use `EXPO_PUBLIC_`. Expo embeds them in the application bundle, so they are public—not secrets.
+- Client-visible values use `EXPO_PUBLIC_`. M0-009 consumes only `EXPO_PUBLIC_SERVER_URL`; Expo embeds it in the application bundle, so it is public—not a secret.
 - The mobile app must never receive database credentials, service-role keys, room passwords, reconnect credentials, signing secrets, or other privileged configuration.
 - The authoritative server owns private database credentials and must not print them in logs or public errors.
 - Real `.env` files are ignored and must never be committed. `.env.example` contains only non-secret examples.
-- The mobile scaffold does not connect to the server or Supabase. No Supabase client library, Auth, Realtime, or Data API is used. The Render Blueprint deploys only the authoritative server.
+- The mobile smoke screen connects only to the authoritative public server. It never connects directly to Supabase. No Supabase client library, Auth, Realtime, or Data API is used. The Render Blueprint deploys only the authoritative server.
 
 Tests inject configuration or use safe defaults, and GitHub Actions requires no secrets. The `secrets:check` quality gate rejects tracked real environment files and high-confidence credential patterns without printing matched values.
 
@@ -87,7 +88,7 @@ Tests inject configuration or use safe defaults, and GitHub Actions requires no 
 
 The root `render.yaml` defines the Stage A Blueprint for one free Render Web Service in Ohio. It builds from the monorepo root, starts compiled server JavaScript, waits for GitHub checks before deploying from `main`, and uses `/ready` as its health check. The real service is not considered deployed until the manual Render setup and Stage B smoke tests succeed.
 
-See [the Render deployment runbook](docs/render-deployment.md) for private configuration, local and remote smoke commands, free-tier cold starts, and the exact Stage B setup procedure.
+See [the Render deployment runbook](docs/render-deployment.md) for private configuration, local and remote smoke commands, free-tier cold starts, and the exact Stage B setup procedure. See [the M0-009 verification guide](docs/m0-009-mobile-database-smoke.md) for migration application and physical iPhone database-smoke acceptance.
 
 ## Quality checks
 

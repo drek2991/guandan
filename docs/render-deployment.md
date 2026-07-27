@@ -101,4 +101,6 @@ Before Stage A is pushed:
 
 Render free Web Services spin down after inactivity. A later request can take approximately a minute to wake the service, although actual duration varies. Stage B must let the instance become idle, request `/health`, record the approximate observed wake-up time, then verify `/ready` and Socket.IO again. No artificial ping, cron job, external uptime service, or keep-alive traffic should prevent spin-down.
 
-Deployments, maintenance, and sleep can disconnect Socket.IO clients. Reconnection behavior belongs to later client work; M0-008 verifies only the temporary scaffold acknowledgement. The mobile application is not connected to this service in this ticket, and no tables, migrations, rooms, players, cards, or game persistence are introduced.
+Deployments, maintenance, and sleep can disconnect Socket.IO clients. General reconnection behavior belongs to later client work; the existing deployment smoke still verifies only the temporary scaffold acknowledgement.
+
+M0-009 adds a one-shot mobile database smoke command and one isolated migration. Apply `apps/server/migrations/202607270001_create_infrastructure_smoke_probe.sql` manually before deploying the M0-009 server. Do not run migrations automatically during server startup. The mobile screen allows 90 seconds for a cold connection and requires manual retry after failure. See [the M0-009 verification guide](m0-009-mobile-database-smoke.md) for the migration, public path, and physical-device acceptance steps.

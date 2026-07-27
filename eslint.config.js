@@ -4,6 +4,20 @@ const expo = require('eslint-config-expo/flat');
 const globals = require('globals');
 const tseslint = require('typescript-eslint');
 
+const nodeTestSafeCalls = [
+  { from: 'package', name: 'after', package: 'node:test' },
+  { from: 'package', name: 'before', package: 'node:test' },
+  { from: 'package', name: 'describe', package: 'node:test' },
+  { from: 'package', name: 'it', package: 'node:test' },
+];
+
+const typedTestRules = {
+  '@typescript-eslint/no-floating-promises': [
+    'error',
+    { allowForKnownSafeCalls: nodeTestSafeCalls },
+  ],
+};
+
 const typedTypeScriptRules = {
   '@typescript-eslint/no-explicit-any': 'error',
   '@typescript-eslint/no-floating-promises': 'error',
@@ -48,10 +62,12 @@ module.exports = tseslint.config(
           alwaysTryTypes: true,
           project: [
             './apps/mobile/tsconfig.json',
+            './apps/mobile/tsconfig.test.json',
             './apps/server/tsconfig.json',
             './apps/server/tsconfig.test.json',
             './packages/game-domain/tsconfig.json',
             './packages/protocol/tsconfig.json',
+            './packages/protocol/tsconfig.test.json',
           ],
         },
       },
@@ -66,6 +82,20 @@ module.exports = tseslint.config(
       },
     },
     rules: typedTypeScriptRules,
+  },
+  {
+    files: ['apps/mobile/test/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        project: './apps/mobile/tsconfig.test.json',
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      ...typedTypeScriptRules,
+      ...typedTestRules,
+    },
   },
   {
     files: ['apps/server/src/**/*.ts'],
@@ -89,17 +119,21 @@ module.exports = tseslint.config(
     },
     rules: {
       ...typedTypeScriptRules,
-      '@typescript-eslint/no-floating-promises': [
-        'error',
-        {
-          allowForKnownSafeCalls: [
-            { from: 'package', name: 'after', package: 'node:test' },
-            { from: 'package', name: 'before', package: 'node:test' },
-            { from: 'package', name: 'describe', package: 'node:test' },
-            { from: 'package', name: 'it', package: 'node:test' },
-          ],
-        },
-      ],
+      ...typedTestRules,
+    },
+  },
+  {
+    files: ['packages/protocol/test/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        project: './packages/protocol/tsconfig.test.json',
+        tsconfigRootDir: __dirname,
+      },
+    },
+    rules: {
+      ...typedTypeScriptRules,
+      ...typedTestRules,
     },
   },
   {

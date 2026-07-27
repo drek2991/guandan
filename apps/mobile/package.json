@@ -6,9 +6,11 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
+    "@guandan/protocol": "0.1.0",
     "expo": "~54.0.36",
     "expo-constants": "~18.0.13",
     "expo-linking": "~8.0.12",
@@ -17,10 +19,13 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0"
+    "react-native-screens": "~4.16.0",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@types/node": "^22.19.0",
     "@types/react": "~19.1.0",
+    "tsx": "^4.23.1",
     "typescript": "~5.9.2"
   }
 }

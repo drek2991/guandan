@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 
 import {
+  INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   SCAFFOLD_PING_EVENT,
+  type InfrastructureDatabaseSmokeAcknowledgement,
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
   type ScaffoldServerToClientEvents,
@@ -11,16 +13,26 @@ import { io as createSocketClient, type Socket } from 'socket.io-client';
 import request from 'supertest';
 
 import { createApp } from '../src/app.js';
-import type { Database } from '../src/database.js';
+import {
+  InfrastructureSmokeDatabaseError,
+  type Database,
+} from '../src/database.js';
 import { createGuandanServer } from '../src/server.js';
 import { startServer, type RunningServer } from '../src/start.js';
 
 const READY_ERROR_MARKER = 'database-detail-marker';
+const COMMAND = {
+  commandId: '550e8400-e29b-41d4-a716-446655440000',
+  probeToken: '8f14e45f-ea1e-4b29-bad7-6e7f5f541234',
+};
+const DATABASE_UPDATED_AT = new Date('2026-07-27T12:00:00.000Z');
 
 function createFakeDatabase(options?: {
   checkError?: Error;
   onCheck?: () => void;
   onClose?: () => void;
+  onInfrastructureSmoke?: () => void;
+  smokeError?: Error;
 }): Database {
   return {
     async check(): Promise<void> {
@@ -28,6 +40,16 @@ function createFakeDatabase(options?: {
       if (options?.checkError !== undefined) {
         throw options.checkError;
       }
+    },
+    async runInfrastructureSmoke(command) {
+      options?.onInfrastructureSmoke?.();
+      if (options?.smokeError !== undefined) {
+        throw options.smokeError;
+      }
+      return {
+        ...command,
+        databaseUpdatedAt: DATABASE_UPDATED_AT,
+      };
     },
     async close(): Promise<void> {
       options?.onClose?.();
@@ -153,7 +175,162 @@ describe('Socket.IO scaffold', () => {
       status: 'ok',
     });
   });
+
+  it('returns success after the database verifies a valid smoke command', async () => {
+    const response = await waitForSmokeAcknowledgement(client, COMMAND);
+
+    assert.equal(response.status, 'ok');
+    if (response.status === 'ok') {
+      assert.deepEqual(
+        {
+          commandId: response.commandId,
+          probeToken: response.probeToken,
+          databaseVerified: response.databaseVerified,
+          operation: response.operation,
+          databaseUpdatedAt: response.databaseUpdatedAt,
+        },
+        {
+          ...COMMAND,
+          databaseVerified: true,
+          operation: 'upsert-readback',
+          databaseUpdatedAt: DATABASE_UPDATED_AT.toISOString(),
+        },
+      );
+      assert.equal(Number.isFinite(Date.parse(response.completedAt)), true);
+    }
+  });
 });
+
+describe('Socket.IO database smoke failures', () => {
+  it('rejects invalid payloads before calling the database', async () => {
+    let databaseCalls = 0;
+    const { client, close } = await startSocketTest(
+      createFakeDatabase({
+        onInfrastructureSmoke: () => {
+          databaseCalls += 1;
+        },
+      }),
+    );
+
+    try {
+      const response = await waitForSmokeAcknowledgement(client, {
+        commandId: COMMAND.commandId,
+        probeToken: 'invalid',
+      });
+      assert.deepEqual(response, {
+        status: 'error',
+        code: 'INVALID_PAYLOAD',
+        message: 'Invalid smoke command payload',
+        commandId: COMMAND.commandId,
+      });
+      assert.equal(databaseCalls, 0);
+    } finally {
+      await close();
+    }
+  });
+
+  for (const [failure, code] of [
+    ['unavailable', 'DATABASE_UNAVAILABLE'],
+    ['write', 'DATABASE_WRITE_FAILED'],
+    ['readback-mismatch', 'DATABASE_READBACK_MISMATCH'],
+    ['internal', 'INTERNAL_ERROR'],
+  ] as const) {
+    it(`maps ${failure} database failures to ${code}`, async () => {
+      const { client, close } = await startSocketTest(
+        createFakeDatabase({
+          smokeError: new InfrastructureSmokeDatabaseError(failure),
+        }),
+      );
+
+      try {
+        const response = await waitForSmokeAcknowledgement(client, COMMAND);
+        assert.equal(response.status, 'error');
+        if (response.status === 'error') {
+          assert.equal(response.code, code);
+          assert.equal(response.commandId, COMMAND.commandId);
+          assert.equal(response.message.includes(READY_ERROR_MARKER), false);
+        }
+      } finally {
+        await close();
+      }
+    });
+  }
+
+  it('maps unexpected failures to INTERNAL_ERROR without crashing', async () => {
+    const { client, close } = await startSocketTest(
+      createFakeDatabase({
+        smokeError: new Error(READY_ERROR_MARKER),
+      }),
+    );
+
+    try {
+      const response = await waitForSmokeAcknowledgement(client, COMMAND);
+      assert.deepEqual(response, {
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Smoke operation failed',
+        commandId: COMMAND.commandId,
+      });
+      assert.equal(response.message.includes(READY_ERROR_MARKER), false);
+      assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+async function startSocketTest(database: Database): Promise<{
+  client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>;
+  close: () => Promise<void>;
+}> {
+  const runningServer = await startServer(
+    {
+      database: {
+        caPath: 'test-ca.crt',
+        connectionString: 'test-configuration',
+      },
+      host: '127.0.0.1',
+      port: 0,
+    },
+    {
+      createDatabase: () => database,
+      createServer: createGuandanServer,
+    },
+  );
+  const client = createSocketClient(
+    `http://127.0.0.1:${runningServer.address.port}`,
+    {
+      forceNew: true,
+      reconnection: false,
+      transports: ['websocket'],
+    },
+  );
+  await waitForConnection(client);
+
+  return {
+    client,
+    async close(): Promise<void> {
+      client.disconnect();
+      await runningServer.close();
+    },
+  };
+}
+
+function waitForSmokeAcknowledgement(
+  client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
+  payload: unknown,
+): Promise<InfrastructureDatabaseSmokeAcknowledgement> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Socket.IO smoke acknowledgement timed out'));
+    }, 5_000);
+
+    client.emit(INFRASTRUCTURE_DATABASE_SMOKE_EVENT, payload, (response) => {
+      clearTimeout(timer);
+      resolve(response);
+    });
+  });
+}
 
 function waitForAcknowledgement(
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,

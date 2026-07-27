@@ -1,24 +1,28 @@
 # Mobile
 
-Minimal iPhone client scaffold built with Expo SDK 54, React Native, TypeScript, and Expo Router. It uses Expo's managed workflow and runs in Expo Go without a custom development client.
+Minimal iPhone client built with Expo SDK 54, React Native, TypeScript, and Expo Router. It uses Expo's managed workflow and runs in Expo Go without a custom development client.
 
-From the repository root, install dependencies and start Metro:
+## M0-009 infrastructure smoke screen
+
+The current screen is a narrow infrastructure verification surface. It sends the shared `infrastructure:database-smoke` command to the authoritative server and displays success only after the server confirms a transactional Supabase Postgres upsert and exact readback. It does not connect directly to Supabase or include lobby, identity, authentication, or gameplay behavior.
+
+From the repository root, install dependencies and start Metro for the deployed server:
 
 ```sh
 npm install
-npm run mobile:start
+EXPO_PUBLIC_SERVER_URL=https://guandan-server-hv6y.onrender.com npm run mobile:start
 ```
 
-Scan the development-server QR code with Expo Go on an iPhone connected to the same network.
+Open Expo Go on a physical iPhone and scan the development-server QR code. Press **Run Database Smoke Test** and allow for a possible Render free-tier cold start. The visible states are Idle, Connecting, Waiting for database verification, Success, and Failure. While a run is active, the button is disabled. Failure permits a manual retry.
 
-Run TypeScript validation from the root with:
+`EXPO_PUBLIC_SERVER_URL` must be an HTTP or HTTPS origin with no credentials, path, query, or fragment. Expo statically includes `EXPO_PUBLIC_` values in the application bundle, so they are public. Never put `DATABASE_URL`, CA paths, Supabase credentials, service-role keys, passwords, signing secrets, device credentials, or reconnect credentials in a mobile environment value.
+
+Run mobile validation from the root:
 
 ```sh
 npm run mobile:typecheck
+npm run mobile:test
+npm run expo:doctor
 ```
 
-## Public environment values
-
-Future values exposed to mobile JavaScript must use the `EXPO_PUBLIC_` prefix and static dot notation such as `process.env.EXPO_PUBLIC_API_BASE_URL`. Expo includes these values in the application bundle, so they are public and must never contain database credentials, service-role keys, passwords, signing secrets, or reconnect credentials.
-
-The example API base URL is optional and currently unused. The mobile scaffold does not make network requests or connect to the server or Supabase.
+See [`docs/m0-009-mobile-database-smoke.md`](../../docs/m0-009-mobile-database-smoke.md) for migration application, public deployment checks, exact iPhone steps, Supabase comparison, and second-run retention verification.

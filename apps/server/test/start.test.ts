@@ -117,6 +117,12 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): Database {
         throw options.checkError;
       }
     },
+    async runInfrastructureSmoke(command) {
+      return {
+        ...command,
+        databaseUpdatedAt: new Date('2026-07-27T12:00:00.000Z'),
+      };
+    },
     async close(): Promise<void> {
       options.onClose?.();
     },

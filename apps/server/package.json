@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "start": "node --env-file-if-exists=../../.env dist/index.js",
+    "migrate:smoke": "node scripts/apply-migration.mjs",
+    "verify:database-smoke": "npm run build && node scripts/verify-infrastructure-smoke.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test": "tsx --test test/**/*.test.ts test/**/*.test.mjs"
   },
