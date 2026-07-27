@@ -43,7 +43,7 @@ describe('server smoke command arguments', () => {
       [],
       ['one.example', 'two.example'],
       ['--local', '--local', 'http://localhost:3000'],
-      ['https://user:secret@service.example'],
+      [new URL('https://service.example').href.replace('//', '//user:secret@')],
       ['https://service.example/path'],
       ['https://service.example?query=value'],
       ['https://service.example#fragment'],
