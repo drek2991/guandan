@@ -3,6 +3,8 @@ import express, {
   type RequestHandler,
 } from 'express';
 
+import type { Database } from './database.js';
+
 const SERVICE_NAME = 'guandan-server';
 
 const notFoundHandler: RequestHandler = (_request, response) => {
@@ -23,7 +25,7 @@ const errorHandler: ErrorRequestHandler = (
   });
 };
 
-export function createApp(): express.Express {
+export function createApp(database: Pick<Database, 'check'>): express.Express {
   const app = express();
 
   app.disable('x-powered-by');
@@ -33,6 +35,20 @@ export function createApp(): express.Express {
       status: 'healthy',
       service: SERVICE_NAME,
     });
+  });
+  app.get('/ready', async (_request, response) => {
+    try {
+      await database.check();
+      response.status(200).json({
+        status: 'ready',
+        service: SERVICE_NAME,
+      });
+    } catch {
+      response.status(503).json({
+        status: 'not_ready',
+        service: SERVICE_NAME,
+      });
+    }
   });
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -68,15 +68,17 @@ Copy the committed example only when local overrides are needed:
 cp .env.example .env
 ```
 
-The server development and compiled-start commands optionally load the root `.env`; shell and deployment variables take precedence. Supported server values are optional `PORT` (default `3000`) and optional `NODE_ENV` (`development`, `test`, or `production`). Invalid values fail before the server listens.
+The server development and compiled-start commands optionally load the root `.env`; shell and deployment variables take precedence. Supported values are optional `PORT` (default `3000`), optional `NODE_ENV` (`development`, `test`, or `production`), and required server-private `DATABASE_URL`. Invalid values fail before the server listens.
+
+`DATABASE_URL` must be the Supabase Postgres **Session pooler** URL. The server requires verified TLS connectivity using `DATABASE_CA_PATH`, which points to the ignored Supabase CA certificate downloaded from Database Settings → SSL Configuration. The connection URL may omit `sslmode` or contain one `sslmode=require`; conflicting SSL settings are rejected. It is used only by the authoritative server through a bounded `pg` pool. Startup verifies the database before listening, `/ready` performs a sanitized readiness query, and shutdown closes both network and database resources. Tests and GitHub Actions use fakes and require no database secret. No tables, migrations, or application persistence exist yet.
 
 Mobile and server configuration have separate trust boundaries:
 
 - Future client-visible values must use `EXPO_PUBLIC_`. Expo embeds them in the application bundle, so they are public—not secrets.
 - The mobile app must never receive database credentials, service-role keys, room passwords, reconnect credentials, signing secrets, or other privileged configuration.
-- The authoritative server owns all future private service credentials and must not print them in logs.
+- The authoritative server owns private database credentials and must not print them in logs or public errors.
 - Real `.env` files are ignored and must never be committed. `.env.example` contains only non-secret examples.
-- The mobile scaffold does not connect to the server or Supabase. Real Supabase and Render configuration is not present yet.
+- The mobile scaffold does not connect to the server or Supabase. No Supabase client library, Auth, Realtime, or Data API is used, and Render configuration is not present.
 
 Tests inject configuration or use safe defaults, and GitHub Actions requires no secrets. The `secrets:check` quality gate rejects tracked real environment files and high-confidence credential patterns without printing matched values.
 

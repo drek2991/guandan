@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error: unknown) => {
-  console.error('Server startup failed', error);
+main().catch(() => {
+  console.error('Server startup failed');
   process.exitCode = 1;
 });

@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
 
 import type { ServerConfig } from './config.js';
+import { createPostgresDatabase, type Database } from './database.js';
 import { createGuandanServer, type GuandanServer } from './server.js';
 
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
@@ -10,29 +11,50 @@ export interface RunningServer {
   close: () => Promise<void>;
 }
 
+export interface StartServerDependencies {
+  createDatabase: (config: ServerConfig['database']) => Database;
+  createServer: (database: Database) => GuandanServer;
+}
+
+const defaultDependencies: StartServerDependencies = {
+  createDatabase: createPostgresDatabase,
+  createServer: createGuandanServer,
+};
+
 export async function startServer(
   config: ServerConfig,
+  dependencies: StartServerDependencies = defaultDependencies,
 ): Promise<RunningServer> {
-  const server = createGuandanServer();
+  const database = dependencies.createDatabase(config.database);
+  let server: GuandanServer | undefined;
 
   try {
+    server = dependencies.createServer(database);
+    await database.check();
     await listen(server, config);
+
+    const address = server.httpServer.address();
+
+    if (address === null || typeof address === 'string') {
+      throw new Error('Server started without a TCP address');
+    }
+
+    return {
+      address,
+      close: createIdempotentClose(server, database),
+    };
   } catch (error: unknown) {
-    await server.close();
+    const cleanupErrors = await closeResources(server, database);
+
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        'Server startup failed and resource cleanup also failed',
+      );
+    }
+
     throw error;
   }
-
-  const address = server.httpServer.address();
-
-  if (address === null || typeof address === 'string') {
-    await server.close();
-    throw new Error('Server started without a TCP address');
-  }
-
-  return {
-    address,
-    close: server.close,
-  };
 }
 
 export function registerShutdownHandlers(
@@ -51,11 +73,11 @@ export function registerShutdownHandlers(
 
     void runningServer.close().then(
       () => {
-        console.log('Server shut down cleanly');
+        console.log('Server and database shut down cleanly');
         exit(0);
       },
-      (error: unknown) => {
-        console.error('Server shutdown failed', error);
+      () => {
+        console.error('Server shutdown failed');
         exit(1);
       },
     );
@@ -70,6 +92,46 @@ export function registerShutdownHandlers(
       process.off(signal, shutdown);
     }
   };
+}
+
+function createIdempotentClose(
+  server: GuandanServer,
+  database: Database,
+): () => Promise<void> {
+  let closePromise: Promise<void> | undefined;
+
+  return () => {
+    closePromise ??= closeResources(server, database).then((errors) => {
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'Server shutdown failed');
+      }
+    });
+
+    return closePromise;
+  };
+}
+
+async function closeResources(
+  server: GuandanServer | undefined,
+  database: Database,
+): Promise<unknown[]> {
+  const errors: unknown[] = [];
+
+  if (server !== undefined) {
+    try {
+      await server.close();
+    } catch (error: unknown) {
+      errors.push(error);
+    }
+  }
+
+  try {
+    await database.close();
+  } catch (error: unknown) {
+    errors.push(error);
+  }
+
+  return errors;
 }
 
 function listen(server: GuandanServer, config: ServerConfig): Promise<void> {

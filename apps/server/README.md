@@ -22,15 +22,19 @@ The development and production-start commands optionally load `.env` from the re
 
 The server reads `PORT`, defaults to `3000`, and binds to `0.0.0.0` for local and deployment compatibility. Optional `NODE_ENV` values are `development`, `test`, and `production`. Invalid values fail before the server listens.
 
-Private service credentials will belong only on this authoritative server. They must not be logged or exposed through Expo public variables. Supabase credentials are not configured yet.
+`DATABASE_URL` is required for actual startup and remains server-private. Use the Supabase Postgres **Session pooler** connection string. The server requires verified TLS connectivity. Set `DATABASE_CA_PATH` to the ignored Supabase CA certificate downloaded from Database Settings → SSL Configuration. The connection URL may omit `sslmode` or contain one `sslmode=require`; conflicting SSL settings are rejected. If the database password contains reserved URL characters, percent-encode the password component only. Never log or expose the connection string, hostname, username, password, or project reference through Expo public variables.
 
-## Health check
+The server uses one bounded `pg` pool and verifies it with `SELECT 1` before opening the HTTP listener. Tests and CI inject fakes and require no database secret. No application tables, migrations, or persistence behavior exist yet.
+
+For a local connection smoke test, put the Session pooler URL only in the ignored root `.env`, build with `npm run server:build`, then start with `npm run server:start`. Verify `/health` and `/ready`, the Socket.IO scaffold acknowledgement, and clean `SIGTERM` shutdown without printing database details.
+
+## Health and readiness
 
 ```text
 GET /health
 ```
 
-A healthy process returns HTTP 200 with:
+A live process returns HTTP 200 with:
 
 ```json
 {
@@ -38,5 +42,13 @@ A healthy process returns HTTP 200 with:
   "service": "guandan-server"
 }
 ```
+
+Database readiness is available at:
+
+```text
+GET /ready
+```
+
+It returns HTTP 200 with a stable ready response after a successful database query, or a sanitized HTTP 503 response when the database is unavailable. `/health` does not query the database.
 
 Socket.IO currently exposes only the temporary `scaffold:ping` acknowledgement from `@guandan/protocol` to verify shared-package connectivity. It will be replaced by the gameplay protocol in a later milestone.

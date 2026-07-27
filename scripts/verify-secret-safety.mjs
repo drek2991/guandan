@@ -18,6 +18,8 @@ const credentialPatterns = [
   ['stripe-secret', /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/],
   ['sendgrid-key', /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/],
   ['embedded-url-credential', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:]+:[^\s/@]+@/i],
+  ['supabase-secret-key', /\bsb_secret_[A-Za-z0-9_-]{16,}\b/],
+  ['database-url-value', /^\s*DATABASE_URL\s*=\s*\S+/],
 ];
 
 const findings = [];
