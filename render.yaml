@@ -1,0 +1,24 @@
+previews:
+  generation: off
+
+services:
+  - type: web
+    name: guandan-server
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    numInstances: 1
+    buildCommand: npm ci && npm run server:build
+    startCommand: npm run server:start
+    healthCheckPath: /ready
+    renderSubdomainPolicy: enabled
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_CA_PATH
+        value: /etc/secrets/supabase-ca.crt
+      - key: DATABASE_URL
+        sync: false

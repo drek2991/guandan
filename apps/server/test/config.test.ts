@@ -171,18 +171,26 @@ describe('server configuration', () => {
     });
   });
 
-  it('rejects unsupported SSL parameters', () => {
+  it('rejects URL parameters that could override enforced pool settings', () => {
     for (const parameter of [
+      'ssl',
       'uselibpqcompat',
       'sslcert',
       'sslkey',
       'sslrootcert',
+      'host',
+      'user',
+      'password',
+      'database',
+      'application_name',
+      'statement_timeout',
+      'query_timeout',
     ]) {
       const value = createDatabaseUrl((url) => {
         url.searchParams.set(parameter, 'fixture');
       });
 
-      assertSanitizedConfigurationError(value, /unsupported SSL parameters/);
+      assertSanitizedConfigurationError(value, /unsupported parameters/);
     }
   });
 

@@ -27,6 +27,7 @@
     "server:test": "npm run shared:build && npm run test --workspace @guandan/server",
     "server:build": "npm run shared:build && npm run build --workspace @guandan/server",
     "server:start": "npm run start --workspace @guandan/server",
+    "server:smoke": "npm run smoke --workspace @guandan/server --",
     "typecheck": "npm run shared:typecheck && npm run mobile:typecheck && npm run server:typecheck",
     "test": "npm run server:test && npm run packages:smoke",
     "packages:smoke": "node scripts/verify-package-imports.mjs",

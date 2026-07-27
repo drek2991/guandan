@@ -4,7 +4,7 @@ const DEFAULT_PORT = 3000;
 const MIN_PORT = 1;
 const MAX_PORT = 65_535;
 const POSTGRES_PROTOCOLS = new Set(['postgres:', 'postgresql:']);
-const UNSUPPORTED_SSL_PARAMETERS = ['sslcert', 'sslkey', 'sslrootcert'];
+const ALLOWED_DATABASE_URL_PARAMETERS = new Set(['sslmode']);
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
 
@@ -106,13 +106,10 @@ function parseDatabaseConfig(
     );
   }
 
-  if (
-    url.searchParams.has('uselibpqcompat') ||
-    UNSUPPORTED_SSL_PARAMETERS.some((parameter) =>
-      url.searchParams.has(parameter),
-    )
-  ) {
-    throw new Error('DATABASE_URL contains unsupported SSL parameters');
+  for (const parameter of url.searchParams.keys()) {
+    if (!ALLOWED_DATABASE_URL_PARAMETERS.has(parameter)) {
+      throw new Error('DATABASE_URL contains unsupported parameters');
+    }
   }
 
   if (caPath === undefined || caPath.length === 0) {
