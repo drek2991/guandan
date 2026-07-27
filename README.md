@@ -8,7 +8,7 @@ Guandan is currently in **Milestone 0**, establishing the repository foundation 
 - **Authoritative server:** a Node.js and TypeScript service using Express and Socket.IO.
 - **Game domain:** shared deterministic game rules and state transitions.
 - **Protocol:** shared client-server messages and TypeScript contracts.
-- **Persistence and deployment:** Supabase Postgres and Render, introduced in later milestones.
+- **Persistence and deployment:** Supabase Postgres connectivity and a staged Render deployment configuration for the authoritative server.
 
 ## Repository layout
 
@@ -56,6 +56,7 @@ npm run server:typecheck
 npm run server:test
 npm run server:build
 npm run server:start
+npm run server:smoke -- https://your-server.example
 ```
 
 Server development, type-check, test, and build commands compile the shared packages first so package-root imports resolve from a clean checkout. Restart the server development process after changing a shared package so it reloads the new compiled output.
@@ -78,9 +79,15 @@ Mobile and server configuration have separate trust boundaries:
 - The mobile app must never receive database credentials, service-role keys, room passwords, reconnect credentials, signing secrets, or other privileged configuration.
 - The authoritative server owns private database credentials and must not print them in logs or public errors.
 - Real `.env` files are ignored and must never be committed. `.env.example` contains only non-secret examples.
-- The mobile scaffold does not connect to the server or Supabase. No Supabase client library, Auth, Realtime, or Data API is used, and Render configuration is not present.
+- The mobile scaffold does not connect to the server or Supabase. No Supabase client library, Auth, Realtime, or Data API is used. The Render Blueprint deploys only the authoritative server.
 
 Tests inject configuration or use safe defaults, and GitHub Actions requires no secrets. The `secrets:check` quality gate rejects tracked real environment files and high-confidence credential patterns without printing matched values.
+
+## Deployment
+
+The root `render.yaml` defines the Stage A Blueprint for one free Render Web Service in Ohio. It builds from the monorepo root, starts compiled server JavaScript, waits for GitHub checks before deploying from `main`, and uses `/ready` as its health check. The real service is not considered deployed until the manual Render setup and Stage B smoke tests succeed.
+
+See [the Render deployment runbook](docs/render-deployment.md) for private configuration, local and remote smoke commands, free-tier cold starts, and the exact Stage B setup procedure.
 
 ## Quality checks
 

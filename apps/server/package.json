@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "start": "node --env-file-if-exists=../../.env dist/index.js",
-    "test": "tsx --test test/**/*.test.ts"
+    "smoke": "node scripts/smoke.mjs",
+    "test": "tsx --test test/**/*.test.ts test/**/*.test.mjs"
   },
   "dependencies": {
     "@guandan/protocol": "0.1.0",

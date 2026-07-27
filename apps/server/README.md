@@ -10,6 +10,7 @@ npm run server:typecheck
 npm run server:test
 npm run server:build
 npm run server:start
+npm run server:smoke -- https://your-server.example
 ```
 
 - `server:dev` runs the TypeScript source with `tsx` and restarts when files change.
@@ -26,7 +27,9 @@ The server reads `PORT`, defaults to `3000`, and binds to `0.0.0.0` for local an
 
 The server uses one bounded `pg` pool and verifies it with `SELECT 1` before opening the HTTP listener. Tests and CI inject fakes and require no database secret. No application tables, migrations, or persistence behavior exist yet.
 
-For a local connection smoke test, put the Session pooler URL only in the ignored root `.env`, build with `npm run server:build`, then start with `npm run server:start`. Verify `/health` and `/ready`, the Socket.IO scaffold acknowledgement, and clean `SIGTERM` shutdown without printing database details.
+For a local connection smoke test, put the Session pooler URL only in the ignored root `.env`, build with `npm run server:build`, then start with `npm run server:start`. Run `npm run server:smoke -- --local http://127.0.0.1:3000`, send `SIGTERM`, and confirm clean shutdown without printing database details. The same command requires HTTPS for deployed targets.
+
+See [the Render deployment runbook](../../docs/render-deployment.md) for the Stage A Blueprint, secret-file setup, remote verification, and free-tier cold-start behavior.
 
 ## Health and readiness
 
