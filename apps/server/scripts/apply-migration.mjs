@@ -3,6 +3,11 @@ import { resolve } from 'node:path';
 
 import { Pool } from 'pg';
 
+import {
+  PRIMARY_KEY_METADATA_QUERY,
+  isExpectedSmokePrimaryKey,
+} from './verify-primary-key.mjs';
+
 const migrationPath = resolve(
   process.cwd(),
   'apps/server/migrations/202607270001_create_infrastructure_smoke_probe.sql',
@@ -96,45 +101,22 @@ async function verifyMigration(database) {
     throw new Error('Migration verification failed: incompatible columns');
   }
 
-  const constraints = await database.query(`
-    SELECT
-      constraint_record.contype AS "constraintType",
-      pg_get_constraintdef(constraint_record.oid, true) AS "definition",
-      COALESCE(
-        array_agg(attribute.attname ORDER BY key_column.ordinality)
-          FILTER (WHERE attribute.attname IS NOT NULL),
-        ARRAY[]::name[]
-      ) AS "columns"
-    FROM pg_constraint constraint_record
-    LEFT JOIN unnest(constraint_record.conkey) WITH ORDINALITY AS key_column(attnum, ordinality)
-      ON true
-    LEFT JOIN pg_attribute attribute
-      ON attribute.attrelid = constraint_record.conrelid
-      AND attribute.attnum = key_column.attnum
-    WHERE constraint_record.conrelid = 'public.infrastructure_smoke_probe'::regclass
-    GROUP BY constraint_record.oid, constraint_record.contype
-    ORDER BY constraint_record.contype, "definition"
-  `);
-
-  const primaryKeys = constraints.rows.filter(
-    ({ constraintType }) => constraintType === 'p',
-  );
-  if (
-    constraints.rows.length !== 2 ||
-    primaryKeys.length !== 1 ||
-    JSON.stringify(primaryKeys[0].columns) !== JSON.stringify(['probe_key']) ||
-    primaryKeys[0].definition !== 'PRIMARY KEY (probe_key)'
-  ) {
+  const primaryKeys = await database.query(PRIMARY_KEY_METADATA_QUERY);
+  if (!isExpectedSmokePrimaryKey(primaryKeys.rows)) {
     throw new Error('Migration verification failed: incompatible primary key');
   }
 
-  const checks = constraints.rows.filter(
-    ({ constraintType }) => constraintType === 'c',
-  );
+  const checks = await database.query(`
+    SELECT pg_get_constraintdef(constraint_record.oid, true) AS "definition"
+    FROM pg_constraint constraint_record
+    WHERE constraint_record.conrelid = 'public.infrastructure_smoke_probe'::regclass
+      AND constraint_record.contype = 'c'
+    ORDER BY constraint_record.oid
+  `);
   if (
-    checks.length !== 1 ||
+    checks.rows.length !== 1 ||
     !/^CHECK \(probe_key = 'mobile-server-database-v1'::text\)$/.test(
-      checks[0].definition,
+      checks.rows[0].definition,
     )
   ) {
     throw new Error(
