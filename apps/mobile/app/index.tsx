@@ -1,3 +1,8 @@
+import {
+  type ScaffoldClientToServerEvents,
+  type ScaffoldServerToClientEvents,
+} from '@guandan/protocol';
+import { randomUUID } from 'expo-crypto';
 import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,14 +13,30 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { io, type Socket } from 'socket.io-client';
 
 import {
+  acquireSmokeRun,
+  CONNECTION_TIMEOUT_MS,
+  createRunSmokeDependencies,
   getServerHost,
+  releaseSmokeRun,
   runInfrastructureSmoke,
   SERVER_URL,
   type SmokePhase,
   type SmokeTerminalResult,
 } from '../src/infrastructure-smoke';
+
+const smokeDependencies = createRunSmokeDependencies(
+  randomUUID,
+  (url) =>
+    io(url, {
+      autoConnect: false,
+      forceNew: true,
+      reconnection: false,
+      timeout: CONNECTION_TIMEOUT_MS,
+    }) as Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
+);
 
 const PHASE_LABELS: Record<SmokePhase, string> = {
   idle: 'Idle',
@@ -32,17 +53,16 @@ export default function HomeScreen() {
   const isRunning = phase === 'connecting' || phase === 'waiting';
 
   const runSmokeTest = (): void => {
-    if (runningRef.current) {
+    if (!acquireSmokeRun(runningRef)) {
       return;
     }
 
-    runningRef.current = true;
     setResult(undefined);
-    void runInfrastructureSmoke(SERVER_URL, setPhase).then(
+    void runInfrastructureSmoke(SERVER_URL, setPhase, smokeDependencies).then(
       (nextResult) => {
         setResult(nextResult);
         setPhase(nextResult.phase);
-        runningRef.current = false;
+        releaseSmokeRun(runningRef);
       },
       () => {
         setResult({
@@ -51,7 +71,7 @@ export default function HomeScreen() {
           message: 'The smoke test could not be completed.',
         });
         setPhase('failure');
-        runningRef.current = false;
+        releaseSmokeRun(runningRef);
       },
     );
   };

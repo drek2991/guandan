@@ -178,7 +178,7 @@ describe('PostgreSQL database boundary', () => {
     );
   });
 
-  it('rolls back and returns internal error for unexpected read failures', async () => {
+  it('rolls back and returns internal error for read query execution failures', async () => {
     const queries: QueryCall[] = [];
     const database = createDatabaseWithClient({
       queries,
@@ -192,6 +192,22 @@ describe('PostgreSQL database boundary', () => {
     );
     assert.equal(queries.at(-1)?.text, 'ROLLBACK');
   });
+
+  for (const [name, readback] of [
+    ['missing row', null],
+    ['malformed timestamp', { ...COMMAND, databaseUpdatedAt: 'not-a-date' }],
+  ] as const) {
+    it(`rolls back with readback mismatch for ${name}`, async () => {
+      const queries: QueryCall[] = [];
+      const database = createDatabaseWithClient({ queries, readback });
+
+      await assertSmokeFailure(
+        database.runInfrastructureSmoke(COMMAND),
+        'readback-mismatch',
+      );
+      assert.equal(queries.at(-1)?.text, 'ROLLBACK');
+    });
+  }
 
   it('returns success only after commit succeeds', async () => {
     const queries: QueryCall[] = [];
@@ -208,6 +224,28 @@ describe('PostgreSQL database boundary', () => {
     assert.deepEqual(
       queries.map(({ text }) => transactionLabel(text)),
       ['BEGIN', 'UPSERT', 'READBACK', 'COMMIT', 'ROLLBACK'],
+    );
+  });
+
+  it('returns internal error when rollback fails', async () => {
+    const queries: QueryCall[] = [];
+    const database = createDatabaseWithClient({
+      queries,
+      clientQueryError: (text) => {
+        if (text.includes('INSERT INTO') || text === 'ROLLBACK') {
+          return new Error(RAW_ERROR_MARKER);
+        }
+        return undefined;
+      },
+    });
+
+    await assertSmokeFailure(
+      database.runInfrastructureSmoke(COMMAND),
+      'internal',
+    );
+    assert.deepEqual(
+      queries.map(({ text }) => transactionLabel(text)),
+      ['BEGIN', 'UPSERT', 'ROLLBACK'],
     );
   });
 
@@ -322,8 +360,8 @@ function createDatabaseWithClient(options: {
   readback?: {
     commandId: string;
     probeToken: string;
-    databaseUpdatedAt: Date;
-  };
+    databaseUpdatedAt: Date | string;
+  } | null;
 }) {
   const client = createFakeClient(options);
   return createPostgresDatabase(
@@ -340,8 +378,8 @@ function createFakeClient(options?: {
   readback?: {
     commandId: string;
     probeToken: string;
-    databaseUpdatedAt: Date;
-  };
+    databaseUpdatedAt: Date | string;
+  } | null;
 }): PostgresClient {
   return {
     async query<R extends object>(
@@ -355,6 +393,10 @@ function createFakeClient(options?: {
       }
 
       if (text.includes('SELECT')) {
+        if (options?.readback === null) {
+          return queryResult<R>([]);
+        }
+
         const readback = options?.readback ?? {
           ...COMMAND,
           databaseUpdatedAt: DATABASE_UPDATED_AT,

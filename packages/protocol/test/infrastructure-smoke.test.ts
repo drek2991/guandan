@@ -48,6 +48,11 @@ describe('infrastructure database smoke command', () => {
     ['missing command identifier', { probeToken: PROBE_TOKEN }],
     ['missing probe token', { commandId: COMMAND_ID }],
     ['unexpected field', { ...validCommand, database: 'unsupported' }],
+    [
+      'oversized command identifier',
+      { ...validCommand, commandId: 'a'.repeat(161) },
+    ],
+    ['oversized probe token', { ...validCommand, probeToken: 'a'.repeat(161) }],
     ['array payload', [validCommand]],
     ['null payload', null],
   ] as const) {
@@ -103,6 +108,14 @@ describe('infrastructure database smoke acknowledgement', () => {
       { ...validFailure, code: 'SQL_ERROR' },
     ],
     ['failure with an empty message', { ...validFailure, message: '' }],
+    [
+      'failure with an oversized message',
+      { ...validFailure, message: 'a'.repeat(161) },
+    ],
+    [
+      'failure with an unexpected field',
+      { ...validFailure, detail: 'unsupported' },
+    ],
     [
       'failure with an invalid command identifier',
       { ...validFailure, commandId: 'invalid' },

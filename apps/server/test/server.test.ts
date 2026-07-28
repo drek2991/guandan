@@ -224,6 +224,20 @@ describe('Socket.IO database smoke failures', () => {
         commandId: COMMAND.commandId,
       });
       assert.equal(databaseCalls, 0);
+
+      const responseWithoutValidCommandId = await waitForSmokeAcknowledgement(
+        client,
+        {
+          commandId: 'invalid',
+          probeToken: COMMAND.probeToken,
+        },
+      );
+      assert.deepEqual(responseWithoutValidCommandId, {
+        status: 'error',
+        code: 'INVALID_PAYLOAD',
+        message: 'Invalid smoke command payload',
+      });
+      assert.equal(databaseCalls, 0);
     } finally {
       await close();
     }

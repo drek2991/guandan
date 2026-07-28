@@ -13,7 +13,7 @@ npm install
 EXPO_PUBLIC_SERVER_URL=https://guandan-server-hv6y.onrender.com npm run mobile:start
 ```
 
-Open Expo Go on a physical iPhone and scan the development-server QR code. Press **Run Database Smoke Test** and allow for a possible Render free-tier cold start. The visible states are Idle, Connecting, Waiting for database verification, Success, and Failure. While a run is active, the button is disabled. Failure permits a manual retry.
+Open Expo Go on a physical iPhone and scan the development-server QR code. Press **Run Database Smoke Test** and allow for a possible Render free-tier cold start. The visible states are Idle, Connecting, Waiting for database verification, Success, and Failure. While a run is active, the button and the pure run lock suppress duplicate submissions. Each accepted run uses Expo SDK 54's compatible `expo-crypto` UUID-v4 generator, opens one non-reconnecting connection, and disconnects after a bounded result. Failure permits a manual retry.
 
 `EXPO_PUBLIC_SERVER_URL` must be an HTTP or HTTPS origin with no credentials, path, query, or fragment. Expo statically includes `EXPO_PUBLIC_` values in the application bundle, so they are public. Never put `DATABASE_URL`, CA paths, Supabase credentials, service-role keys, passwords, signing secrets, device credentials, or reconnect credentials in a mobile environment value.
 

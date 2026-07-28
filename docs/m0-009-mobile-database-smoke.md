@@ -23,7 +23,7 @@ Apply the committed migration from the repository root using the same ignored `.
 npm run server:migrate:smoke
 ```
 
-`DATABASE_URL` and `DATABASE_CA_PATH` must be available in the shell or ignored root `.env`. The command uses verified TLS, logs no connection details, applies only the named committed SQL file, and verifies four columns plus RLS. The DDL is safe to run again: `CREATE TABLE IF NOT EXISTS` preserves the existing table and `ENABLE ROW LEVEL SECURITY` is idempotent.
+`DATABASE_URL` and `DATABASE_CA_PATH` must be available in the shell or ignored root `.env`. The command uses verified TLS, logs no connection details, and applies only the named committed SQL file in a transaction. It verifies exact column order, names, Postgres types, nullability, the database timestamp default, primary key, fixed-key check, RLS, and the absence of policies. The DDL is safe to run again when the table is compatible; an incompatible pre-existing table fails semantic verification and the transaction rolls back.
 
 Alternatively, a project administrator may copy the complete migration into the Supabase SQL Editor and run it there. Never paste database credentials or the CA certificate into SQL.
 
@@ -61,13 +61,13 @@ FROM public.infrastructure_smoke_probe;
 
 Expected behavior is zero rows before the first run and exactly one row afterward. Every successful run upserts the fixed key and replaces the two identifiers and timestamp. Running the test repeatedly must leave `smoke_row_count = 1`.
 
-A developer with configured private database access can verify two real transactional upsert/readback operations and one-row retention without printing identifiers:
+A developer with configured private database access can verify two real transactional upsert/readback operations and one-row retention:
 
 ```sh
 npm run server:verify:database-smoke
 ```
 
-This administrative verification is not part of CI and is not run during server startup.
+This administrative verification is not part of CI and is not run during server startup. It prints only the fixed key, generated command IDs and probe tokens, database timestamps, and retained row count for acceptance evidence; it never prints database configuration, credentials, or certificate contents.
 
 ## Mobile setup
 

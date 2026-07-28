@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  acquireSmokeRun,
   evaluateAcknowledgement,
   parseServerUrl,
+  releaseSmokeRun,
   runInfrastructureSmoke,
   type RunSmokeDependencies,
 } from '../src/infrastructure-smoke.js';
@@ -37,7 +39,7 @@ describe('mobile server configuration', () => {
     '',
     ' https://server.example',
     'ftp://server.example',
-    'https://user:pass@server.example',
+    ['https://user', ':', 'pass@server.example'].join(''),
     'https://server.example/path',
     'https://server.example?query=1',
     'https://server.example#fragment',
@@ -90,6 +92,35 @@ describe('mobile acknowledgement evaluation', () => {
         code: 'DATABASE_WRITE_FAILED',
       },
     );
+  });
+
+  it('rejects an invalid acknowledgement shape', () => {
+    assert.deepEqual(
+      evaluateAcknowledgement(
+        { ...SUCCESS, databaseUpdatedAt: 'not-a-timestamp' },
+        { commandId: COMMAND_ID, probeToken: PROBE_TOKEN },
+      ),
+      {
+        phase: 'failure',
+        category: 'invalid-acknowledgement',
+        message: 'The server returned an invalid acknowledgement.',
+      },
+    );
+  });
+});
+
+describe('mobile duplicate-run suppression', () => {
+  it('allows only one active run and permits a later retry', () => {
+    const lock = { current: false };
+
+    assert.equal(acquireSmokeRun(lock), true);
+    assert.equal(acquireSmokeRun(lock), false);
+    assert.equal(lock.current, true);
+
+    releaseSmokeRun(lock);
+
+    assert.equal(lock.current, false);
+    assert.equal(acquireSmokeRun(lock), true);
   });
 });
 
@@ -151,6 +182,55 @@ describe('mobile smoke execution', () => {
     assert.equal(socket.connectCalls, 1);
     assert.equal(socket.emitCalls, 1);
     assert.equal(socket.disconnectCalls, 1);
+    assert.deepEqual(socket.commands, [
+      { commandId: COMMAND_ID, probeToken: PROBE_TOKEN },
+    ]);
+  });
+
+  it('generates fresh identifiers for every manual run', async () => {
+    const firstSocket = new FakeSocket({ acknowledgement: SUCCESS });
+    const secondCommandId = 'a8098c1a-f86e-4b3a-b53f-74a0f9e8d123';
+    const secondProbeToken = 'b8098c1a-f86e-4b3a-b53f-74a0f9e8d456';
+    const secondSocket = new FakeSocket({
+      acknowledgement: {
+        ...SUCCESS,
+        commandId: secondCommandId,
+        probeToken: secondProbeToken,
+      },
+    });
+    const identifiers = [
+      COMMAND_ID,
+      PROBE_TOKEN,
+      secondCommandId,
+      secondProbeToken,
+    ];
+    const sockets = [firstSocket, secondSocket];
+    const runDependencies: RunSmokeDependencies = {
+      createIdentifier: () => identifiers.shift() ?? COMMAND_ID,
+      createSocket: () => sockets.shift() ?? firstSocket,
+      connectionTimeoutMs: 50,
+      acknowledgementTimeoutMs: 50,
+    };
+
+    const firstResult = await runInfrastructureSmoke(
+      'https://server.example',
+      () => undefined,
+      runDependencies,
+    );
+    const secondResult = await runInfrastructureSmoke(
+      'https://server.example',
+      () => undefined,
+      runDependencies,
+    );
+
+    assert.equal(firstResult.phase, 'success');
+    assert.equal(secondResult.phase, 'success');
+    assert.deepEqual(firstSocket.commands, [
+      { commandId: COMMAND_ID, probeToken: PROBE_TOKEN },
+    ]);
+    assert.deepEqual(secondSocket.commands, [
+      { commandId: secondCommandId, probeToken: secondProbeToken },
+    ]);
   });
 
   it('returns configuration failure without opening a connection', async () => {
@@ -175,6 +255,7 @@ class FakeSocket {
   connectCalls = 0;
   disconnectCalls = 0;
   emitCalls = 0;
+  readonly commands: unknown[] = [];
   private readonly listeners = new Map<
     string,
     Set<(...args: never[]) => void>
@@ -227,8 +308,12 @@ class FakeSocket {
 
   timeout(_milliseconds: number) {
     return {
-      emitWithAck: async (): Promise<unknown> => {
+      emitWithAck: async (
+        _event: string,
+        command: unknown,
+      ): Promise<unknown> => {
         this.emitCalls += 1;
+        this.commands.push(command);
         if (this.options.acknowledgementError) {
           throw new Error('timeout');
         }

@@ -4,12 +4,11 @@ import {
   type InfrastructureDatabaseSmokeAcknowledgement,
   type InfrastructureDatabaseSmokeCommand,
   type InfrastructureDatabaseSmokeSuccess,
-  type ScaffoldClientToServerEvents,
-  type ScaffoldServerToClientEvents,
 } from '@guandan/protocol';
-import { io, type Socket } from 'socket.io-client';
+const publicServerUrl: unknown = process.env.EXPO_PUBLIC_SERVER_URL;
 
-export const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+export const SERVER_URL =
+  typeof publicServerUrl === 'string' ? publicServerUrl : undefined;
 export const CONNECTION_TIMEOUT_MS = 90_000;
 export const ACKNOWLEDGEMENT_TIMEOUT_MS = 15_000;
 
@@ -35,6 +34,23 @@ export interface SmokeFailureResult {
 }
 
 export type SmokeTerminalResult = SmokeSuccessResult | SmokeFailureResult;
+
+export interface SmokeRunLock {
+  current: boolean;
+}
+
+export function acquireSmokeRun(lock: SmokeRunLock): boolean {
+  if (lock.current) {
+    return false;
+  }
+
+  lock.current = true;
+  return true;
+}
+
+export function releaseSmokeRun(lock: SmokeRunLock): void {
+  lock.current = false;
+}
 
 interface SmokeSocket {
   connected: boolean;
@@ -63,21 +79,28 @@ export interface RunSmokeDependencies {
   acknowledgementTimeoutMs: number;
 }
 
-const defaultDependencies: RunSmokeDependencies = {
-  createIdentifier: () => globalThis.expo.uuidv4(),
-  createSocket: (url) =>
-    io(url, {
-      autoConnect: false,
-      forceNew: true,
-      reconnection: false,
-      timeout: CONNECTION_TIMEOUT_MS,
-    }) as Socket<
-      ScaffoldServerToClientEvents,
-      ScaffoldClientToServerEvents
-    > as SmokeSocket,
+const missingDependencies: RunSmokeDependencies = {
+  createIdentifier: () => {
+    throw new Error('Smoke identifier generator is unavailable');
+  },
+  createSocket: () => {
+    throw new Error('Smoke socket factory is unavailable');
+  },
   connectionTimeoutMs: CONNECTION_TIMEOUT_MS,
   acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
 };
+
+export function createRunSmokeDependencies(
+  createIdentifier: () => string,
+  createSocket: RunSmokeDependencies['createSocket'],
+): RunSmokeDependencies {
+  return {
+    createIdentifier,
+    createSocket,
+    connectionTimeoutMs: CONNECTION_TIMEOUT_MS,
+    acknowledgementTimeoutMs: ACKNOWLEDGEMENT_TIMEOUT_MS,
+  };
+}
 
 export function parseServerUrl(value: string | undefined): string | undefined {
   if (value === undefined || value.length === 0 || value.trim() !== value) {
@@ -113,7 +136,7 @@ export function getServerHost(value: string | undefined): string {
 export async function runInfrastructureSmoke(
   serverUrlValue: string | undefined,
   onPhase: (phase: 'connecting' | 'waiting') => void,
-  dependencies: RunSmokeDependencies = defaultDependencies,
+  dependencies: RunSmokeDependencies = missingDependencies,
 ): Promise<SmokeTerminalResult> {
   const serverUrl = parseServerUrl(serverUrlValue);
   if (serverUrl === undefined) {
