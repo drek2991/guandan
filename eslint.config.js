@@ -170,5 +170,11 @@ module.exports = tseslint.config(
       globals: globals.node,
     },
   },
+  {
+    files: ['apps/server/scripts/verify-infrastructure-smoke.mjs'],
+    rules: {
+      'import/no-unresolved': 'off',
+    },
+  },
   prettier,
 );
