@@ -33,9 +33,10 @@ nvm use
 npm install
 ```
 
-Start the Expo Go development server or run the mobile TypeScript check from the repository root:
+Build the shared packages before starting Expo Go from a clean checkout, or run the mobile checks from the repository root:
 
 ```sh
+npm run shared:build
 EXPO_PUBLIC_SERVER_URL=https://your-server.example npm run mobile:start
 npm run mobile:typecheck
 npm run mobile:test
@@ -110,9 +111,9 @@ npm run verify
 
 ## Dependency security
 
-As of July 21, 2026, `npm audit` reports 13 moderate findings and no high or critical findings. The 13 package records derive from two transitive Expo SDK 54 tooling advisories: PostCSS through Metro configuration and `uuid` through Expo config plugins and `xcode`. The authoritative production server and shared packages have no audit findings.
+As of July 28, 2026, `npm ci` reports 37 advisories in the current Expo and development-tool dependency graph: 11 moderate and 26 high. These do not fail the established quality gates, and M0 does not respond to them with forced transitive overrides or unsupported major upgrades. The authoritative server production dependency set and shared packages remain separately reviewable from the mobile development toolchain.
 
-The remaining findings are temporarily accepted because the repository already uses the latest compatible Expo SDK 54 packages, neither affected path is part of the normal native iPhone runtime, and remediation requires unsupported transitive overrides or an Expo major upgrade. Do not use `npm audit fix --force`. Reassess these findings when upgrading Expo, when Expo publishes compatible backports, or before adding web/CSS processing, custom config plugins, or native prebuild inputs. Any new high or critical finding requires blocking review.
+Do not use `npm audit fix --force`. Reassess advisories during supported Expo and tooling upgrades, before adding web/CSS processing or native prebuild inputs, and whenever a finding reaches production runtime code. A future dependency change should be handled as a scoped ticket rather than folded into milestone acceptance.
 
 ## Zero-budget mobile testing
 

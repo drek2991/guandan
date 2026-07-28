@@ -7,4 +7,4 @@ Guandan is planned as a small npm-workspaces monorepo with four independently sc
 - `packages/game-domain`: framework-independent, deterministic game rules and state transitions shared where appropriate.
 - `packages/protocol`: shared client-server event names, payload types, and protocol contracts.
 
-Supabase Postgres will provide persistence in a later milestone. The server will remain authoritative: clients submit player intent, while the server validates actions and advances game state. This milestone establishes only the repository boundaries; no application, persistence, networking, or game-logic implementation is included yet.
+The server remains authoritative: clients submit intent, while the server validates commands and owns all direct database access. M0 now includes deployed HTTP and Socket.IO scaffolding plus one isolated fixed-row Supabase infrastructure probe; it does not include application persistence, rooms, players, lobby behavior, gameplay, or game-rule implementation.

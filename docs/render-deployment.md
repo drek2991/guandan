@@ -64,7 +64,7 @@ The smoke command accepts an explicit base URL and checks the public contract wi
 npm run server:smoke -- https://your-render-hostname.onrender.com
 ```
 
-It requires HTTPS, verifies exact HTTP 200 responses from `/health` and `/ready`, connects through Socket.IO, emits `scaffold:ping`, checks the `{ "status": "ok" }` acknowledgement, and disconnects. Failure output identifies the failed stage without printing arbitrary response bodies or infrastructure details.
+It requires HTTPS, verifies exact HTTP 200 responses from `/health` and `/ready`, then uses separate fresh Socket.IO clients to verify polling and WebSocket transport connections. Each client emits `scaffold:ping`, requires the exact `{ "status": "ok" }` acknowledgement, and disconnects promptly. Failure output identifies the transport and phase without printing arbitrary response bodies or infrastructure details.
 
 For a local compiled server only, explicitly permit loopback HTTP:
 

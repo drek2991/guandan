@@ -80,8 +80,11 @@ EXPO_PUBLIC_SERVER_URL=https://guandan-server-hv6y.onrender.com
 This is a public server origin, not a secret. From the repository root, start Expo with the value in the command environment:
 
 ```sh
+npm run shared:build
 EXPO_PUBLIC_SERVER_URL=https://guandan-server-hv6y.onrender.com npm run mobile:start
 ```
+
+The shared build is required on a clean checkout before Metro resolves workspace package exports.
 
 Then:
 
