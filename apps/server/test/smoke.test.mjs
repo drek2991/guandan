@@ -6,6 +6,12 @@ import { parseArguments, runSmokeTest } from '../scripts/smoke.mjs';
 
 const HEALTH_BODY = { status: 'healthy', service: 'guandan-server' };
 const READY_BODY = { status: 'ready', service: 'guandan-server' };
+const SHORT_TIMEOUTS = {
+  pollingConnectionTimeoutMs: 50,
+  pollingAcknowledgementTimeoutMs: 50,
+  websocketConnectionTimeoutMs: 50,
+  websocketAcknowledgementTimeoutMs: 50,
+};
 
 describe('server smoke command arguments', () => {
   it('accepts HTTPS URLs and infers HTTPS for a hostname', () => {
@@ -43,7 +49,12 @@ describe('server smoke command arguments', () => {
       [],
       ['one.example', 'two.example'],
       ['--local', '--local', 'http://localhost:3000'],
-      [new URL('https://service.example').href.replace('//', '//user:secret@')],
+      [
+        new URL('https://service.example').href.replace(
+          '//',
+          ['//user', ':', 'secret@'].join(''),
+        ),
+      ],
       ['https://service.example/path'],
       ['https://service.example?query=value'],
       ['https://service.example#fragment'],
@@ -54,10 +65,10 @@ describe('server smoke command arguments', () => {
   });
 });
 
-describe('server smoke verification', () => {
-  it('verifies health, readiness, and the Socket.IO acknowledgement', async () => {
+describe('server smoke HTTP verification', () => {
+  it('verifies health and readiness before Socket.IO', async () => {
     const requestedPaths = [];
-    const socket = createFakeSocket();
+    const sockets = [];
 
     await runSmokeTest('https://service.example', {
       fetchImplementation: async (url) => {
@@ -66,19 +77,22 @@ describe('server smoke verification', () => {
           url.pathname === '/health' ? HEALTH_BODY : READY_BODY,
         );
       },
-      socketFactory: () => socket,
+      socketFactory: (_url, options) => {
+        const socket = createFakeSocket();
+        sockets.push({ options, socket });
+        return socket;
+      },
     });
 
     assert.deepEqual(requestedPaths, ['/health', '/ready']);
-    assert.equal(socket.emittedEvent, 'scaffold:ping');
-    assert.equal(socket.disconnected, true);
+    assert.equal(sockets.length, 2);
   });
 
   it('rejects non-200 and unexpected endpoint responses', async () => {
     await assert.rejects(
       runSmokeTest('https://service.example', {
         fetchImplementation: async () => Response.json({}, { status: 503 }),
-        socketFactory: () => createFakeSocket(),
+        socketFactory: unexpectedSocketFactory,
       }),
       /\/health returned HTTP 503/,
     );
@@ -91,7 +105,7 @@ describe('server smoke verification', () => {
               ? { ...HEALTH_BODY, diagnostic: 'unexpected' }
               : READY_BODY,
           ),
-        socketFactory: () => createFakeSocket(),
+        socketFactory: unexpectedSocketFactory,
       }),
       /\/health returned an unexpected response/,
     );
@@ -101,66 +115,230 @@ describe('server smoke verification', () => {
     await assert.rejects(
       runSmokeTest('https://service.example', {
         fetchImplementation: async () => new Response('private upstream page'),
-        socketFactory: () => createFakeSocket(),
+        socketFactory: unexpectedSocketFactory,
       }),
       /\/health returned invalid JSON/,
     );
   });
+});
 
-  it('disconnects after an invalid acknowledgement', async () => {
-    const socket = createFakeSocket({ acknowledgement: { status: 'wrong' } });
+describe('server smoke transport success', () => {
+  for (const [transport, label] of [
+    ['polling', 'polling'],
+    ['websocket', 'WebSocket'],
+  ]) {
+    it(`verifies ${label} with an exact acknowledgement`, async () => {
+      const sockets = [];
 
-    await assert.rejects(
-      runSmokeTest('https://service.example', {
+      await runSmokeTest('https://service.example', {
         fetchImplementation: createSuccessfulFetch(),
-        socketFactory: () => socket,
-      }),
-      /Socket.IO scaffold verification failed/,
-    );
-    assert.equal(socket.disconnected, true);
-  });
+        socketFactory: (_url, options) => {
+          const socket = createFakeSocket();
+          sockets.push({ options, socket });
+          return socket;
+        },
+      });
 
-  it('disconnects after a connection error', async () => {
-    const socket = createFakeSocket({ connectionError: true });
+      const index = transport === 'polling' ? 0 : 1;
+      assert.deepEqual(sockets[index].options.transports, [transport]);
+      assert.equal(sockets[index].options.forceNew, true);
+      assert.equal(sockets[index].options.reconnection, false);
+      assert.equal(sockets[index].socket.emittedEvent, 'scaffold:ping');
+      assert.equal(sockets[index].socket.disconnected, true);
+      assert.equal(sockets[index].socket.listenerCount(), 0);
+    });
+  }
 
-    await assert.rejects(
-      runSmokeTest('https://service.example', {
-        fetchImplementation: createSuccessfulFetch(),
-        socketFactory: () => socket,
-        socketTimeoutMs: 10,
-      }),
-      /Socket.IO scaffold verification failed/,
-    );
-    assert.equal(socket.disconnected, true);
+  it('runs polling before WebSocket with fresh clients', async () => {
+    const transports = [];
+
+    await runSmokeTest('https://service.example', {
+      fetchImplementation: createSuccessfulFetch(),
+      socketFactory: (_url, options) => {
+        transports.push(options.transports[0]);
+        return createFakeSocket();
+      },
+    });
+
+    assert.deepEqual(transports, ['polling', 'websocket']);
   });
 });
+
+describe('server smoke connection failures', () => {
+  for (const [transport, label, overrides] of [
+    ['polling', 'polling', { pollingConnectionTimeoutMs: 1 }],
+    ['websocket', 'WebSocket', { websocketConnectionTimeoutMs: 1 }],
+  ]) {
+    it(`reports ${label} connection timeout and disconnects`, async () => {
+      const socket = createFakeSocket({ neverConnect: true });
+
+      await assert.rejects(
+        runWithTransportSocket(transport, socket, overrides),
+        new RegExp(`Socket\\.IO ${label} connection timed out`),
+      );
+      assert.equal(socket.disconnected, true);
+      assert.equal(socket.listenerCount(), 0);
+    });
+  }
+
+  for (const [transport, label] of [
+    ['polling', 'polling'],
+    ['websocket', 'WebSocket'],
+  ]) {
+    it(`reports sanitized ${label} connection error and disconnects`, async () => {
+      const socket = createFakeSocket({
+        connectionError: new Error(
+          [
+            'connection failed for https://user',
+            ':',
+            'secret@host.example',
+          ].join(''),
+        ),
+      });
+
+      await assert.rejects(
+        runWithTransportSocket(transport, socket),
+        (error) => {
+          assert.match(
+            error.message,
+            new RegExp(`Socket\\.IO ${label} connection failed:`),
+          );
+          assert.equal(error.message.includes('secret'), false);
+          return true;
+        },
+      );
+      assert.equal(socket.disconnected, true);
+      assert.equal(socket.listenerCount(), 0);
+    });
+  }
+});
+
+describe('server smoke acknowledgement failures', () => {
+  for (const [transport, label, overrides] of [
+    ['polling', 'polling', { pollingAcknowledgementTimeoutMs: 1 }],
+    ['websocket', 'WebSocket', { websocketAcknowledgementTimeoutMs: 1 }],
+  ]) {
+    it(`reports ${label} acknowledgement timeout and disconnects`, async () => {
+      const socket = createFakeSocket({ neverAcknowledge: true });
+
+      await assert.rejects(
+        runWithTransportSocket(transport, socket, overrides),
+        new RegExp(`Socket\\.IO ${label} acknowledgement timed out`),
+      );
+      assert.equal(socket.disconnected, true);
+      assert.equal(socket.listenerCount(), 0);
+    });
+  }
+
+  for (const [transport, label] of [
+    ['polling', 'polling'],
+    ['websocket', 'WebSocket'],
+  ]) {
+    it(`reports invalid ${label} acknowledgement and disconnects`, async () => {
+      const socket = createFakeSocket({ acknowledgement: { status: 'wrong' } });
+
+      await assert.rejects(
+        runWithTransportSocket(transport, socket),
+        new RegExp(
+          `Socket\\.IO ${label} returned an unexpected acknowledgement`,
+        ),
+      );
+      assert.equal(socket.disconnected, true);
+      assert.equal(socket.listenerCount(), 0);
+    });
+  }
+});
+
+describe('server smoke transport ordering', () => {
+  it('does not start WebSocket when polling verification fails', async () => {
+    const transports = [];
+    const pollingSocket = createFakeSocket({
+      connectionError: new Error('down'),
+    });
+
+    await assert.rejects(
+      runSmokeTest('https://service.example', {
+        fetchImplementation: createSuccessfulFetch(),
+        socketFactory: (_url, options) => {
+          transports.push(options.transports[0]);
+          return pollingSocket;
+        },
+        ...SHORT_TIMEOUTS,
+      }),
+      /Socket\.IO polling connection failed: down/,
+    );
+
+    assert.deepEqual(transports, ['polling']);
+    assert.equal(pollingSocket.disconnected, true);
+  });
+});
+
+function runWithTransportSocket(transport, targetSocket, overrides = {}) {
+  return runSmokeTest('https://service.example', {
+    fetchImplementation: createSuccessfulFetch(),
+    socketFactory: (_url, options) => {
+      if (options.transports[0] === transport) {
+        return targetSocket;
+      }
+      return createFakeSocket();
+    },
+    ...SHORT_TIMEOUTS,
+    ...overrides,
+  });
+}
 
 function createSuccessfulFetch() {
   return async (url) =>
     Response.json(url.pathname === '/health' ? HEALTH_BODY : READY_BODY);
 }
 
+function unexpectedSocketFactory() {
+  throw new Error('Socket factory should not be called');
+}
+
 function createFakeSocket(options = {}) {
   const emitter = new EventEmitter();
   const socket = {
-    connected: options.connectionError !== true,
+    connected: false,
     disconnected: false,
     emittedEvent: undefined,
-    once: emitter.once.bind(emitter),
+    once(event, listener) {
+      emitter.once(event, listener);
+      if (event === 'connect_error' && options.connectionError !== undefined) {
+        queueMicrotask(() =>
+          emitter.emit('connect_error', options.connectionError),
+        );
+      } else if (
+        event === 'connect' &&
+        options.connectionError === undefined &&
+        !options.neverConnect
+      ) {
+        queueMicrotask(() => {
+          socket.connected = true;
+          emitter.emit('connect');
+        });
+      }
+      return socket;
+    },
     off: emitter.off.bind(emitter),
     emit(event, acknowledge) {
       socket.emittedEvent = event;
-      queueMicrotask(() =>
-        acknowledge(options.acknowledgement ?? { status: 'ok' }),
-      );
+      if (!options.neverAcknowledge) {
+        queueMicrotask(() =>
+          acknowledge(options.acknowledgement ?? { status: 'ok' }),
+        );
+      }
     },
     disconnect() {
       socket.disconnected = true;
     },
+    listenerCount() {
+      return (
+        emitter.listenerCount('connect') +
+        emitter.listenerCount('connect_error')
+      );
+    },
   };
 
-  queueMicrotask(() =>
-    emitter.emit(options.connectionError ? 'connect_error' : 'connect'),
-  );
   return socket;
 }

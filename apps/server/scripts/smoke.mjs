@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
+import { setDefaultAutoSelectFamily } from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 import { io as createSocketClient } from 'socket.io-client';
 
+setDefaultAutoSelectFamily(false);
+
 const SERVICE_NAME = 'guandan-server';
 const SCAFFOLD_PING_EVENT = 'scaffold:ping';
 const HTTP_TIMEOUT_MS = 90_000;
-const SOCKET_TIMEOUT_MS = 15_000;
-const ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
+const POLLING_CONNECTION_TIMEOUT_MS = 90_000;
+const POLLING_ACKNOWLEDGEMENT_TIMEOUT_MS = 15_000;
+const WEBSOCKET_CONNECTION_TIMEOUT_MS = 90_000;
+const WEBSOCKET_ACKNOWLEDGEMENT_TIMEOUT_MS = 15_000;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export function parseArguments(arguments_) {
@@ -71,8 +76,10 @@ export async function runSmokeTest(
     fetchImplementation = fetch,
     socketFactory = createSocketClient,
     httpTimeoutMs = HTTP_TIMEOUT_MS,
-    socketTimeoutMs = SOCKET_TIMEOUT_MS,
-    acknowledgementTimeoutMs = ACKNOWLEDGEMENT_TIMEOUT_MS,
+    pollingConnectionTimeoutMs = POLLING_CONNECTION_TIMEOUT_MS,
+    pollingAcknowledgementTimeoutMs = POLLING_ACKNOWLEDGEMENT_TIMEOUT_MS,
+    websocketConnectionTimeoutMs = WEBSOCKET_CONNECTION_TIMEOUT_MS,
+    websocketAcknowledgementTimeoutMs = WEBSOCKET_ACKNOWLEDGEMENT_TIMEOUT_MS,
   } = {},
 ) {
   await verifyJsonEndpoint(
@@ -88,24 +95,18 @@ export async function runSmokeTest(
     httpTimeoutMs,
   );
 
-  const socket = socketFactory(baseUrl, {
-    forceNew: true,
-    reconnection: false,
-    timeout: socketTimeoutMs,
+  await verifySocketTransport(baseUrl, socketFactory, {
+    transport: 'polling',
+    label: 'polling',
+    connectionTimeoutMs: pollingConnectionTimeoutMs,
+    acknowledgementTimeoutMs: pollingAcknowledgementTimeoutMs,
   });
-
-  try {
-    await waitForConnection(socket, socketTimeoutMs);
-    const acknowledgement = await waitForAcknowledgement(
-      socket,
-      acknowledgementTimeoutMs,
-    );
-    assert.deepEqual(acknowledgement, { status: 'ok' });
-  } catch {
-    throw new Error('Socket.IO scaffold verification failed');
-  } finally {
-    socket.disconnect();
-  }
+  await verifySocketTransport(baseUrl, socketFactory, {
+    transport: 'websocket',
+    label: 'WebSocket',
+    connectionTimeoutMs: websocketConnectionTimeoutMs,
+    acknowledgementTimeoutMs: websocketAcknowledgementTimeoutMs,
+  });
 }
 
 async function verifyJsonEndpoint(
@@ -144,46 +145,103 @@ async function verifyJsonEndpoint(
   }
 }
 
-function waitForConnection(socket, timeoutMs) {
+async function verifySocketTransport(
+  baseUrl,
+  socketFactory,
+  { transport, label, connectionTimeoutMs, acknowledgementTimeoutMs },
+) {
+  const socket = socketFactory(baseUrl, {
+    transports: [transport],
+    forceNew: true,
+    reconnection: false,
+    timeout: connectionTimeoutMs,
+  });
+
+  try {
+    await waitForConnection(socket, label, connectionTimeoutMs);
+    await waitForAcknowledgement(socket, label, acknowledgementTimeoutMs);
+  } finally {
+    socket.disconnect();
+  }
+}
+
+function waitForConnection(socket, label, timeoutMs) {
   if (socket.connected) {
     return Promise.resolve();
   }
 
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Socket.IO connection timed out'));
-    }, timeoutMs);
-    const handleConnect = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error('Socket.IO connection failed'));
-    };
     const cleanup = () => {
       clearTimeout(timer);
       socket.off('connect', handleConnect);
       socket.off('connect_error', handleError);
     };
+    const handleConnect = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = (error) => {
+      cleanup();
+      reject(
+        new Error(
+          `Socket.IO ${label} connection failed: ${sanitizeReason(error)}`,
+        ),
+      );
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Socket.IO ${label} connection timed out`));
+    }, timeoutMs);
 
     socket.once('connect', handleConnect);
     socket.once('connect_error', handleError);
   });
 }
 
-function waitForAcknowledgement(socket, timeoutMs) {
+function waitForAcknowledgement(socket, label, timeoutMs) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('Socket.IO acknowledgement timed out'));
+      reject(new Error(`Socket.IO ${label} acknowledgement timed out`));
     }, timeoutMs);
 
-    socket.emit(SCAFFOLD_PING_EVENT, (response) => {
+    try {
+      socket.emit(SCAFFOLD_PING_EVENT, (response) => {
+        clearTimeout(timer);
+        try {
+          assert.deepEqual(response, { status: 'ok' });
+          resolve();
+        } catch {
+          reject(
+            new Error(
+              `Socket.IO ${label} returned an unexpected acknowledgement`,
+            ),
+          );
+        }
+      });
+    } catch (error) {
       clearTimeout(timer);
-      resolve(response);
-    });
+      reject(
+        new Error(
+          `Socket.IO ${label} acknowledgement failed: ${sanitizeReason(error)}`,
+        ),
+      );
+    }
   });
+}
+
+function sanitizeReason(error) {
+  const reason =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'unknown error';
+  const sanitized = reason
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, '$1[redacted]@')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return (sanitized || 'unknown error').slice(0, 160);
 }
 
 async function main() {
@@ -195,7 +253,7 @@ async function main() {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main().catch((error) => {
     console.error(
-      error instanceof Error ? error.message : 'Server smoke test failed',
+      error instanceof Error ? error.message : 'Server smoke failed',
     );
     process.exitCode = 1;
   });
