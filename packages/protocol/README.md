@@ -19,7 +19,9 @@ M1-001 adds lobby contract foundations without adding command behavior:
 
 The snapshot never exposes internal display-name keys, join order, password material, socket association, or reconnect credentials. See [`docs/m1-001-lobby-state-foundations.md`](../../docs/m1-001-lobby-state-foundations.md) for the exact foundation contracts and extension rules.
 
-M1-002 adds the exact `lobby:create-room` event, normalized create command, revision-0 success contract, and create-specific structured errors. The command contains only command ID, display name, starting level, and turn timer; all room/player authority remains server generated. Join-room and every other lobby mutation, password support, persistence, authentication, gameplay contracts, and mobile UI remain unimplemented. See [`docs/m1-002-authoritative-room-creation.md`](../../docs/m1-002-authoritative-room-creation.md).
+M1-002 adds the exact `lobby:create-room` event, normalized create command, revision-0 success contract, and create-specific structured errors. The command contains only command ID, display name, starting level, and turn timer; all room/player authority remains server generated. See [`docs/m1-002-authoritative-room-creation.md`](../../docs/m1-002-authoritative-room-creation.md).
+
+M1-003 adds the exact `lobby:join-room` event, strict room-code plus normalized-name command, revision-1-or-later non-host success contract, and join-specific structured errors. The client supplies no room/player authority, settings, password, seat, readiness, connection, or join-order fields. Create and join command IDs are globally unique in one runtime. Password access, broadcasts, later lobby mutations, persistence, authentication, gameplay contracts, and mobile UI remain unimplemented. See [`docs/m1-003-authoritative-room-join.md`](../../docs/m1-003-authoritative-room-join.md).
 
 Run from the repository root:
 

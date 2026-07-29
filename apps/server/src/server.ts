@@ -6,6 +6,7 @@ import {
 import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   LOBBY_CREATE_ROOM_EVENT,
+  LOBBY_JOIN_ROOM_EVENT,
   SCAFFOLD_PING_EVENT,
   isInfrastructureSmokeIdentifier,
   parseCommandId,
@@ -13,6 +14,7 @@ import {
   type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type InfrastructureSmokeErrorCode,
+  type JoinRoomAcknowledgement,
   type ScaffoldClientToServerEvents,
   type ScaffoldServerToClientEvents,
 } from '@guandan/protocol';
@@ -71,6 +73,17 @@ export function createGuandanServer(
       handleCreateRoom(lobbyRuntime, socket.id, payload, acknowledge);
     });
 
+    socket.on(LOBBY_JOIN_ROOM_EVENT, (payload, acknowledge) => {
+      if (typeof acknowledge !== 'function') {
+        console.error(
+          'Lobby join-room rejected: acknowledgement callback missing',
+        );
+        return;
+      }
+
+      handleJoinRoom(lobbyRuntime, socket.id, payload, acknowledge);
+    });
+
     socket.on('disconnect', (reason) => {
       console.log(`Socket disconnected: ${socket.id} (${reason})`);
     });
@@ -109,6 +122,36 @@ function handleCreateRoom(
   } else {
     console.error(
       `Lobby create-room command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
+    );
+  }
+}
+
+function handleJoinRoom(
+  lobbyRuntime: LobbyRuntime,
+  socketId: string,
+  payload: unknown,
+  acknowledge: (response: JoinRoomAcknowledgement) => void,
+): void {
+  let response: JoinRoomAcknowledgement;
+  try {
+    response = lobbyRuntime.joinRoom(socketId, payload);
+  } catch {
+    response = {
+      status: 'error',
+      code: 'INTERNAL_ERROR',
+      message: 'Room join failed',
+      ...getCreateCommandId(payload),
+    };
+  }
+
+  acknowledge(response);
+  if (response.status === 'ok') {
+    console.log(
+      `Lobby join-room command=${response.commandId} room=${response.snapshot.roomId} player=${response.snapshot.selfPlayerId} status=ok`,
+    );
+  } else {
+    console.error(
+      `Lobby join-room command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
     );
   }
 }

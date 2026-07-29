@@ -25,7 +25,7 @@ import {
   type LobbyConnectionBinding,
   type LobbyConnectionRegistry,
 } from './connection-registry.js';
-import type { CreateRoomReceiptStore } from './create-receipts.js';
+import type { LobbyCommandReceiptStore } from './command-receipts.js';
 import {
   LobbyInvariantError,
   assertValidLobbyRoomState,
@@ -44,7 +44,7 @@ export interface CreateRoomServiceDependencies {
   repository: LobbyRepository;
   roomCodeAllocator: RoomCodeAllocator;
   connectionRegistry: LobbyConnectionRegistry;
-  receiptStore: CreateRoomReceiptStore;
+  receiptStore: LobbyCommandReceiptStore;
   generateIdentifier?: LobbyIdentifierGenerator;
   validateRoom?: (room: LobbyRoomState) => void;
   projectSnapshot?: typeof projectLobbySnapshot;
@@ -74,8 +74,9 @@ export function createCreateRoomService(
 
       const existingReceipt = dependencies.receiptStore.get(command.commandId);
       if (existingReceipt !== undefined) {
-        return existingReceipt.socketId === socketId &&
-          commandsEqual(existingReceipt.command, command)
+        return existingReceipt.commandKind === 'create-room' &&
+          existingReceipt.socketId === socketId &&
+          createCommandsEqual(existingReceipt.command, command)
           ? existingReceipt.success
           : createError(
               'COMMAND_ID_CONFLICT',
@@ -139,10 +140,14 @@ export function createCreateRoomService(
         }
 
         const receipt = dependencies.receiptStore.insert({
+          commandKind: 'create-room',
           socketId,
           command,
           success,
         });
+        if (receipt.commandKind !== 'create-room') {
+          throw new Error('Create-room receipt kind is invalid');
+        }
         return receipt.success;
       } catch (error: unknown) {
         const cleanupSucceeded = rollback(
@@ -287,7 +292,7 @@ function getValidCommandId(value: unknown): CommandId | undefined {
   return parseCommandId((value as Record<string, unknown>).commandId);
 }
 
-function commandsEqual(
+function createCommandsEqual(
   left: CreateRoomCommand,
   right: CreateRoomCommand,
 ): boolean {

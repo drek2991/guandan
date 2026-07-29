@@ -3,9 +3,14 @@ import {
   type CreateRoomAcknowledgement,
 } from './create-room.js';
 import { isCanonicalUuidV4 } from './identifiers.js';
+import {
+  LOBBY_JOIN_ROOM_EVENT,
+  type JoinRoomAcknowledgement,
+} from './join-room.js';
 
 export * from './create-room.js';
 export * from './identifiers.js';
+export * from './join-room.js';
 export * from './lobby.js';
 
 export const SCAFFOLD_PING_EVENT = 'scaffold:ping';
@@ -59,6 +64,10 @@ export interface ScaffoldClientToServerEvents {
   [LOBBY_CREATE_ROOM_EVENT]: (
     command: unknown,
     acknowledge: (response: CreateRoomAcknowledgement) => void,
+  ) => void;
+  [LOBBY_JOIN_ROOM_EVENT]: (
+    command: unknown,
+    acknowledge: (response: JoinRoomAcknowledgement) => void,
   ) => void;
 }
 

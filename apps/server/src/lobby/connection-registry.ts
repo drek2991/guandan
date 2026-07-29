@@ -33,8 +33,10 @@ export function createLobbyConnectionRegistry(): LobbyConnectionRegistry {
     },
     unbindForRollback(socketId, binding): boolean {
       const current = bindings.get(socketId);
+      if (current === undefined) {
+        return true;
+      }
       if (
-        current === undefined ||
         current.roomId !== binding.roomId ||
         current.playerId !== binding.playerId
       ) {

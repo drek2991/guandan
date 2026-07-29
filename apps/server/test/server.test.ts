@@ -4,9 +4,11 @@ import { after, before, describe, it } from 'node:test';
 import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   LOBBY_CREATE_ROOM_EVENT,
+  LOBBY_JOIN_ROOM_EVENT,
   SCAFFOLD_PING_EVENT,
   type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
+  type JoinRoomAcknowledgement,
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
   type ScaffoldServerToClientEvents,
@@ -342,6 +344,11 @@ describe('Socket.IO create-room integration', () => {
       createRoom: () => {
         throw new Error(READY_ERROR_MARKER);
       },
+      joinRoom: () => ({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Room join failed',
+      }),
     };
     const { client, close } = await startSocketTest(
       createFakeDatabase(),
@@ -365,6 +372,228 @@ describe('Socket.IO create-room integration', () => {
       assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
       const smoke = await waitForSmokeAcknowledgement(client, COMMAND);
       assert.equal(smoke.status, 'ok');
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('Socket.IO join-room integration', () => {
+  it('lets a second client join a created room and replay exactly', async () => {
+    const { runningServer, clients, close } = await startMultiClientTest(2);
+    const [creator, joiner] = clients;
+    assert.notEqual(creator, undefined);
+    assert.notEqual(joiner, undefined);
+    try {
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: '77777777-7777-4777-8777-777777777777',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 'off' },
+      });
+      assert.equal(created.status, 'ok');
+      if (created.status !== 'ok') return;
+      const command = {
+        commandId: '88888888-8888-4888-8888-888888888888',
+        roomCode: created.snapshot.roomCode,
+        displayName: '  Ｂｌａｉｒ  ',
+      };
+      const first = await waitForJoinRoomAcknowledgement(joiner!, command);
+      assert.equal(first.status, 'ok');
+      if (first.status === 'ok') {
+        assert.equal(first.roomRevision, 1);
+        assert.equal(first.snapshot.players.length, 2);
+        assert.equal(first.snapshot.players[1]?.displayName, 'Blair');
+        assert.equal(
+          first.snapshot.selfPlayerId === first.snapshot.hostPlayerId,
+          false,
+        );
+      }
+      const replay = await waitForJoinRoomAcknowledgement(joiner!, command);
+      assert.deepEqual(replay, first);
+      assert.deepEqual(await waitForAcknowledgement(creator!), {
+        status: 'ok',
+      });
+      assert.deepEqual(await waitForAcknowledgement(joiner!), { status: 'ok' });
+      assert.notEqual(runningServer.address.port, 0);
+    } finally {
+      await close();
+    }
+  });
+
+  it('returns join errors without crashing or broadcasting', async () => {
+    const { clients, close } = await startMultiClientTest(3);
+    const [creator, joiner, other] = clients;
+    assert.notEqual(creator, undefined);
+    assert.notEqual(joiner, undefined);
+    assert.notEqual(other, undefined);
+    let unsolicited = 0;
+    creator!.onAny(() => {
+      unsolicited += 1;
+    });
+    try {
+      const invalid = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: '99999999-9999-4999-8999-999999999999',
+        roomCode: 'invalid',
+        displayName: 'Blair',
+      });
+      assert.equal(invalid.status, 'error');
+      if (invalid.status === 'error')
+        assert.equal(invalid.code, 'INVALID_PAYLOAD');
+      const missing = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        roomCode: 'ABC234',
+        displayName: 'Blair',
+      });
+      assert.equal(missing.status, 'error');
+      if (missing.status === 'error')
+        assert.equal(missing.code, 'ROOM_NOT_FOUND');
+
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        displayName: 'Alex',
+        settings: { startingLevel: 7, turnTimer: 60 },
+      });
+      assert.equal(created.status, 'ok');
+      if (created.status !== 'ok') return;
+      const taken = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Ａｌｅｘ',
+      });
+      assert.equal(taken.status, 'error');
+      if (taken.status === 'error') assert.equal(taken.code, 'NAME_TAKEN');
+      const joined = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Blair',
+      });
+      assert.equal(joined.status, 'ok');
+      const payloadConflict = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Changed',
+      });
+      assert.equal(payloadConflict.status, 'error');
+      if (payloadConflict.status === 'error') {
+        assert.equal(payloadConflict.code, 'COMMAND_ID_CONFLICT');
+      }
+      const conflict = await waitForJoinRoomAcknowledgement(other!, {
+        commandId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Blair',
+      });
+      assert.equal(conflict.status, 'error');
+      if (conflict.status === 'error')
+        assert.equal(conflict.code, 'COMMAND_ID_CONFLICT');
+      const bound = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Casey',
+      });
+      assert.equal(bound.status, 'error');
+      if (bound.status === 'error') assert.equal(bound.code, 'ALREADY_IN_ROOM');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(unsolicited, 0);
+      assert.equal(
+        (await waitForSmokeAcknowledgement(other!, COMMAND)).status,
+        'ok',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('fills a room to four and keeps a second room isolated', async () => {
+    const { clients, close } = await startMultiClientTest(6);
+    const [creator, one, two, three, extra, secondCreator] = clients;
+    try {
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: '10101010-1010-4010-8010-101010101010',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 30 },
+      });
+      const secondRoom = await waitForCreateRoomAcknowledgement(
+        secondCreator!,
+        {
+          commandId: '20202020-2020-4020-8020-202020202020',
+          displayName: 'Emery',
+          settings: { startingLevel: 7, turnTimer: 'off' },
+        },
+      );
+      assert.equal(created.status, 'ok');
+      assert.equal(secondRoom.status, 'ok');
+      if (created.status !== 'ok' || secondRoom.status !== 'ok') return;
+      for (const [client, id, name] of [
+        [one!, '30303030-3030-4030-8030-303030303030', 'Blair'],
+        [two!, '40404040-4040-4040-8040-404040404040', 'Casey'],
+        [three!, '50505050-5050-4050-8050-505050505050', 'Devon'],
+      ] as const) {
+        assert.equal(
+          (
+            await waitForJoinRoomAcknowledgement(client, {
+              commandId: id,
+              roomCode: created.snapshot.roomCode,
+              displayName: name,
+            })
+          ).status,
+          'ok',
+        );
+      }
+      const full = await waitForJoinRoomAcknowledgement(extra!, {
+        commandId: '60606060-6060-4060-8060-606060606060',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Finley',
+      });
+      assert.equal(full.status, 'error');
+      if (full.status === 'error') assert.equal(full.code, 'ROOM_FULL');
+      const fullReplay = await waitForJoinRoomAcknowledgement(extra!, {
+        commandId: '60606060-6060-4060-8060-606060606060',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Finley',
+      });
+      assert.equal(fullReplay.status, 'error');
+      if (fullReplay.status === 'error') {
+        assert.equal(fullReplay.code, 'ROOM_FULL');
+      }
+      const isolatedJoin = await waitForJoinRoomAcknowledgement(extra!, {
+        commandId: '70707070-7070-4070-8070-707070707070',
+        roomCode: secondRoom.snapshot.roomCode,
+        displayName: 'Finley',
+      });
+      assert.equal(isolatedJoin.status, 'ok');
+    } finally {
+      await close();
+    }
+  });
+
+  it('survives an injected join runtime failure', async () => {
+    const runtime: LobbyRuntime = {
+      createRoom: () => ({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Room creation failed',
+      }),
+      joinRoom: () => {
+        throw new Error(READY_ERROR_MARKER);
+      },
+    };
+    const { client, close } = await startSocketTest(
+      createFakeDatabase(),
+      runtime,
+    );
+    try {
+      const response = await waitForJoinRoomAcknowledgement(client, {
+        commandId: '80808080-8080-4080-8080-808080808080',
+        roomCode: 'ABC234',
+        displayName: 'Blair',
+      });
+      assert.deepEqual(response, {
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Room join failed',
+        commandId: '80808080-8080-4080-8080-808080808080',
+      });
+      assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
     } finally {
       await close();
     }
@@ -504,6 +733,41 @@ async function startSocketTest(
   };
 }
 
+async function startMultiClientTest(count: number): Promise<{
+  runningServer: RunningServer;
+  clients: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>[];
+  close: () => Promise<void>;
+}> {
+  const database = createFakeDatabase();
+  const runningServer = await startServer(
+    {
+      database: {
+        caPath: 'test-ca.crt',
+        connectionString: 'test-configuration',
+      },
+      host: '127.0.0.1',
+      port: 0,
+    },
+    { createDatabase: () => database, createServer: createGuandanServer },
+  );
+  const clients = Array.from({ length: count }, () =>
+    createSocketClient(`http://127.0.0.1:${runningServer.address.port}`, {
+      forceNew: true,
+      reconnection: false,
+      transports: ['websocket'],
+    }),
+  );
+  await Promise.all(clients.map((client) => waitForConnection(client)));
+  return {
+    runningServer,
+    clients,
+    async close(): Promise<void> {
+      clients.forEach((client) => client.disconnect());
+      await runningServer.close();
+    },
+  };
+}
+
 function waitForCreateRoomAcknowledgement(
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
   payload: unknown,
@@ -514,6 +778,22 @@ function waitForCreateRoomAcknowledgement(
     }, 5_000);
 
     client.emit(LOBBY_CREATE_ROOM_EVENT, payload, (response) => {
+      clearTimeout(timer);
+      resolve(response);
+    });
+  });
+}
+
+function waitForJoinRoomAcknowledgement(
+  client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
+  payload: unknown,
+): Promise<JoinRoomAcknowledgement> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Socket.IO join-room acknowledgement timed out'));
+    }, 5_000);
+
+    client.emit(LOBBY_JOIN_ROOM_EVENT, payload, (response) => {
       clearTimeout(timer);
       resolve(response);
     });

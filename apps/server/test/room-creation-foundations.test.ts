@@ -15,9 +15,9 @@ import {
   createLobbyConnectionRegistry,
 } from '../src/lobby/connection-registry.js';
 import {
-  CreateRoomReceiptConflictError,
-  createCreateRoomReceiptStore,
-} from '../src/lobby/create-receipts.js';
+  LobbyCommandReceiptConflictError,
+  createLobbyCommandReceiptStore,
+} from '../src/lobby/command-receipts.js';
 import { createCreateRoomService } from '../src/lobby/create-room.js';
 import {
   LobbyInvariantError,
@@ -87,7 +87,7 @@ function createHarness(
     candidates?: readonly string[];
     identifiers?: readonly string[];
     repository?: LobbyRepository;
-    receiptStore?: ReturnType<typeof createCreateRoomReceiptStore>;
+    receiptStore?: ReturnType<typeof createLobbyCommandReceiptStore>;
     projectSnapshot?: Parameters<
       typeof createCreateRoomService
     >[0]['projectSnapshot'];
@@ -98,7 +98,7 @@ function createHarness(
 ) {
   const repository = options.repository ?? createInMemoryLobbyRepository();
   const connectionRegistry = createLobbyConnectionRegistry();
-  const receiptStore = options.receiptStore ?? createCreateRoomReceiptStore();
+  const receiptStore = options.receiptStore ?? createLobbyCommandReceiptStore();
   let candidateCalls = 0;
   let identifierCalls = 0;
   const candidateSequence = sequence(options.candidates ?? ['ABC234']);
@@ -314,19 +314,31 @@ describe('connection and receipt registries', () => {
     );
     assert.equal(registry.unbindForRollback('socket-a', binding), true);
     assert.equal(registry.get('socket-a'), undefined);
+    assert.equal(registry.unbindForRollback('socket-a', binding), true);
   });
 
   it('rejects replacing an existing command receipt', () => {
-    const store = createCreateRoomReceiptStore();
+    const store = createLobbyCommandReceiptStore();
     const success = createHarness().service.create('socket-a', COMMAND);
     assert.equal(success.status, 'ok');
     if (success.status !== 'ok') {
       return;
     }
-    store.insert({ socketId: 'socket-a', command: COMMAND, success });
+    store.insert({
+      commandKind: 'create-room',
+      socketId: 'socket-a',
+      command: COMMAND,
+      success,
+    });
     assert.throws(
-      () => store.insert({ socketId: 'socket-a', command: COMMAND, success }),
-      CreateRoomReceiptConflictError,
+      () =>
+        store.insert({
+          commandKind: 'create-room',
+          socketId: 'socket-a',
+          command: COMMAND,
+          success,
+        }),
+      LobbyCommandReceiptConflictError,
     );
   });
 });
@@ -498,7 +510,7 @@ describe('authoritative create-room service', () => {
       roomId: SECOND_ROOM_ID,
       playerId: SECOND_PLAYER_ID,
     });
-    const receiptStore = createCreateRoomReceiptStore();
+    const receiptStore = createLobbyCommandReceiptStore();
     const service = createCreateRoomService({
       repository,
       roomCodeAllocator: createRoomCodeAllocator(repository, () => 'ABC234'),
@@ -537,7 +549,7 @@ describe('authoritative create-room service', () => {
   });
 
   it('rolls back room and binding when receipt insertion fails', () => {
-    const baseStore = createCreateRoomReceiptStore();
+    const baseStore = createLobbyCommandReceiptStore();
     const receiptStore = {
       get: baseStore.get,
       insert: () => {

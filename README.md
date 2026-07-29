@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. M1 now includes strict lobby foundations and authoritative process-local room creation through Socket.IO. Room joining, passwords, lobby UI, lobby persistence, and game logic remain unimplemented; M0's isolated infrastructure smoke table and mobile verification screen remain unchanged.
+The four application and package directories are managed as npm workspaces from the repository root. M1 now includes strict lobby foundations plus authoritative process-local room creation and joining through Socket.IO. Passwords, snapshot broadcasting, seating/readiness, leave/disconnect behavior, lobby UI, lobby persistence, and game logic remain unimplemented; M0's isolated infrastructure smoke table and mobile verification screen remain unchanged.
 
 ## Runtime
 

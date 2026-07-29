@@ -1,6 +1,6 @@
 # Server
 
-The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, and pure M1 lobby-state foundations. It does not yet create or join rooms, register lobby Socket.IO handlers, persist lobby state, or implement cards and game logic.
+The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, M1 lobby-state foundations, and process-local authoritative create-room and join-room handlers. It does not yet broadcast lobby snapshots, persist lobby state, or implement cards and game logic.
 
 Run commands from the repository root:
 
@@ -66,4 +66,10 @@ See [the lobby-state foundation contract](../../docs/m1-001-lobby-state-foundati
 
 M1-002 registers only `lobby:create-room`. The process-local lobby runtime strictly parses and normalizes the command, generates cryptographic room/player identifiers and a bounded-collision room code, inserts a frozen invariant-valid revision-0 room into independent ID/code indexes, binds the requesting socket separately, and returns a player-specific snapshot. Successful command receipts make exact retries idempotent, while failures after insertion roll back room and binding state.
 
-The handler logs no room code, display name, socket ID, or raw command and performs no database access or broadcast. Joining, passwords, seats/readiness/settings mutation, disconnect/reconnect handling, room deletion, persistence, mobile UI, and gameplay remain unimplemented. See [the authoritative room-creation contract](../../docs/m1-002-authoritative-room-creation.md).
+The handler logs no room code, display name, socket ID, or raw command and performs no database access or broadcast. See [the authoritative room-creation contract](../../docs/m1-002-authoritative-room-creation.md).
+
+## Authoritative room joining
+
+M1-003 registers `lobby:join-room`. The same process-local runtime looks up an exact code, rejects protected/full rooms and duplicate normalized names, appends one generated connected/unseated/non-ready non-host player, and atomically replaces the frozen room at revision +1. Create and join share global command-ID receipts, connection bindings, and deterministic idempotency; failed post-replacement work conditionally restores the exact previous room.
+
+The join handler performs no database access, `socket.join`, or snapshot broadcast and logs no room code, display name/key, socket ID, or raw payload. Password access, seats/readiness/settings mutation, leave/disconnect/reconnect handling, room deletion, persistence, mobile UI, and gameplay remain unimplemented. See [the authoritative room-join contract](../../docs/m1-003-authoritative-room-join.md).
