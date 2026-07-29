@@ -146,9 +146,9 @@ export function createInMemoryLobbyRepository(): LobbyRepository {
       }
 
       assertValidLobbyRoomState(previousRoom);
-      const storedPreviousRoom = cloneAndFreezeRoom(previousRoom);
-      roomsById.set(roomId, storedPreviousRoom);
-      return storedPreviousRoom;
+      previousRoomsForRollback.delete(currentRoom);
+      roomsById.set(roomId, previousRoom);
+      return previousRoom;
     },
     getById(roomId): LobbyRoomState | undefined {
       return roomsById.get(roomId);

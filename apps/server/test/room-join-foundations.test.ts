@@ -274,15 +274,41 @@ describe('immutable repository replacement', () => {
       expectedCurrentRevision: 1,
       previousRoom: replacement.previousRoom,
     });
-    assert.notEqual(restored, previous);
-    assert.deepEqual(restored, previous);
-    assert.equal(repository.getById(ROOM_ID), restored);
-    assert.equal(repository.getByCode('ABC234'), restored);
+    assert.equal(restored, previous);
+    assert.equal(restored, replacement.previousRoom);
+    assert.equal(repository.getById(ROOM_ID), previous);
+    assert.equal(repository.getByCode('ABC234'), previous);
     assert.equal(repository.count(), 1);
     assert.equal(Object.isFrozen(restored), true);
     assert.equal(Object.isFrozen(restored.settings), true);
     assert.equal(Object.isFrozen(restored.players), true);
     assert.equal(Object.isFrozen(restored.players[0]), true);
+  });
+
+  it('rejects reuse of a completed rollback operation', () => {
+    const repository = createInMemoryLobbyRepository();
+    const previous = repository.insert(room());
+    const replacement = repository.replaceRoom({
+      roomId: ROOM_ID,
+      expectedRevision: 0,
+      nextRoom: nextRoom(previous),
+    });
+    repository.restoreRoomForRollback({
+      roomId: ROOM_ID,
+      expectedCurrentRevision: 1,
+      previousRoom: replacement.previousRoom,
+    });
+
+    assert.throws(() =>
+      repository.restoreRoomForRollback({
+        roomId: ROOM_ID,
+        expectedCurrentRevision: 1,
+        previousRoom: replacement.previousRoom,
+      }),
+    );
+    assert.equal(repository.getById(ROOM_ID), previous);
+    assert.equal(repository.getByCode('ABC234'), previous);
+    assert.equal(repository.count(), 1);
   });
 
   it('rejects a reconstructed rollback value', () => {
@@ -717,8 +743,9 @@ describe('authoritative join-room service', () => {
       assert.equal(response.code, 'INTERNAL_ERROR');
     }
     assert.equal(unbindCalls, 1);
-    assert.deepEqual(baseRepository.getByCode('ABC234'), previous);
-    assert.notEqual(baseRepository.getByCode('ABC234'), previous);
+    assert.equal(baseRepository.getById(ROOM_ID), previous);
+    assert.equal(baseRepository.getByCode('ABC234'), previous);
+    assert.equal(baseRepository.count(), 1);
     assert.equal(receiptStore.get(JOIN_ID), undefined);
   });
 
