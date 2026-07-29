@@ -60,4 +60,10 @@ Socket.IO retains the temporary `scaffold:ping` acknowledgement and adds the inf
 
 M1-001 adds pure server-internal lobby types, complete-state invariants, structural start eligibility, and player-specific `LobbySnapshotV1` projection under `src/lobby`. The internal model owns display-name uniqueness keys and stable join order while exposing only public settings and player fields through `@guandan/protocol`. Internal settings contain only starting level, turn timer, and `hasPassword`; no password material, socket ID, reconnect credential, persistence field, or gameplay state belongs to this model.
 
-No room lifecycle or mutation behavior is registered with Socket.IO in M1-001. See [the lobby-state foundation contract](../../docs/m1-001-lobby-state-foundations.md) for ownership, invariants, ordering, revisions, capabilities, acknowledgement foundations, and explicit exclusions.
+See [the lobby-state foundation contract](../../docs/m1-001-lobby-state-foundations.md) for ownership, invariants, ordering, revisions, capabilities, acknowledgement foundations, and explicit exclusions.
+
+## Authoritative room creation
+
+M1-002 registers only `lobby:create-room`. The process-local lobby runtime strictly parses and normalizes the command, generates cryptographic room/player identifiers and a bounded-collision room code, inserts a frozen invariant-valid revision-0 room into independent ID/code indexes, binds the requesting socket separately, and returns a player-specific snapshot. Successful command receipts make exact retries idempotent, while failures after insertion roll back room and binding state.
+
+The handler logs no room code, display name, socket ID, or raw command and performs no database access or broadcast. Joining, passwords, seats/readiness/settings mutation, disconnect/reconnect handling, room deletion, persistence, mobile UI, and gameplay remain unimplemented. See [the authoritative room-creation contract](../../docs/m1-002-authoritative-room-creation.md).

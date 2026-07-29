@@ -17,7 +17,9 @@ M1-001 adds lobby contract foundations without adding command behavior:
 - structural start eligibility and informational viewer capabilities;
 - exact existing-room mutation metadata and success/error acknowledgement foundations.
 
-The snapshot never exposes internal display-name keys, join order, password material, socket association, or reconnect credentials. Create-room, join-room, all lobby mutations, Socket.IO handlers, persistence, authentication, and gameplay contracts remain unimplemented. See [`docs/m1-001-lobby-state-foundations.md`](../../docs/m1-001-lobby-state-foundations.md) for the exact contracts and extension rules.
+The snapshot never exposes internal display-name keys, join order, password material, socket association, or reconnect credentials. See [`docs/m1-001-lobby-state-foundations.md`](../../docs/m1-001-lobby-state-foundations.md) for the exact foundation contracts and extension rules.
+
+M1-002 adds the exact `lobby:create-room` event, normalized create command, revision-0 success contract, and create-specific structured errors. The command contains only command ID, display name, starting level, and turn timer; all room/player authority remains server generated. Join-room and every other lobby mutation, password support, persistence, authentication, gameplay contracts, and mobile UI remain unimplemented. See [`docs/m1-002-authoritative-room-creation.md`](../../docs/m1-002-authoritative-room-creation.md).
 
 Run from the repository root:
 

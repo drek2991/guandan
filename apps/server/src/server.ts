@@ -5,9 +5,12 @@ import {
 
 import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
+  LOBBY_CREATE_ROOM_EVENT,
   SCAFFOLD_PING_EVENT,
   isInfrastructureSmokeIdentifier,
+  parseCommandId,
   parseInfrastructureDatabaseSmokeCommand,
+  type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type InfrastructureSmokeErrorCode,
   type ScaffoldClientToServerEvents,
@@ -17,6 +20,7 @@ import { Server as SocketIoServer } from 'socket.io';
 
 import { createApp } from './app.js';
 import { InfrastructureSmokeDatabaseError, type Database } from './database.js';
+import { createLobbyRuntime, type LobbyRuntime } from './lobby/runtime.js';
 
 export interface GuandanServer {
   httpServer: HttpServer;
@@ -27,7 +31,10 @@ export interface GuandanServer {
   close: () => Promise<void>;
 }
 
-export function createGuandanServer(database: Database): GuandanServer {
+export function createGuandanServer(
+  database: Database,
+  lobbyRuntime: LobbyRuntime = createLobbyRuntime(),
+): GuandanServer {
   const app = createApp(database);
   const httpServer = createHttpServer(app);
   const io = new SocketIoServer<
@@ -53,6 +60,17 @@ export function createGuandanServer(database: Database): GuandanServer {
       void handleInfrastructureDatabaseSmoke(database, payload, acknowledge);
     });
 
+    socket.on(LOBBY_CREATE_ROOM_EVENT, (payload, acknowledge) => {
+      if (typeof acknowledge !== 'function') {
+        console.error(
+          'Lobby create-room rejected: acknowledgement callback missing',
+        );
+        return;
+      }
+
+      handleCreateRoom(lobbyRuntime, socket.id, payload, acknowledge);
+    });
+
     socket.on('disconnect', (reason) => {
       console.log(`Socket disconnected: ${socket.id} (${reason})`);
     });
@@ -63,6 +81,49 @@ export function createGuandanServer(database: Database): GuandanServer {
     io,
     close: () => closeServer(io, httpServer),
   };
+}
+
+function handleCreateRoom(
+  lobbyRuntime: LobbyRuntime,
+  socketId: string,
+  payload: unknown,
+  acknowledge: (response: CreateRoomAcknowledgement) => void,
+): void {
+  let response: CreateRoomAcknowledgement;
+  try {
+    response = lobbyRuntime.createRoom(socketId, payload);
+  } catch {
+    response = {
+      status: 'error',
+      code: 'INTERNAL_ERROR',
+      message: 'Room creation failed',
+      ...getCreateCommandId(payload),
+    };
+  }
+
+  acknowledge(response);
+  if (response.status === 'ok') {
+    console.log(
+      `Lobby create-room command=${response.commandId} room=${response.snapshot.roomId} player=${response.snapshot.selfPlayerId} status=ok`,
+    );
+  } else {
+    console.error(
+      `Lobby create-room command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
+    );
+  }
+}
+
+function getCreateCommandId(payload: unknown): { commandId?: string } {
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    'commandId' in payload
+  ) {
+    const commandId = parseCommandId(payload.commandId);
+    return commandId === undefined ? {} : { commandId };
+  }
+  return {};
 }
 
 async function handleInfrastructureDatabaseSmoke(

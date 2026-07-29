@@ -1,6 +1,6 @@
 # Guandan
 
-Guandan is currently in **Milestone 0**, establishing the repository foundation for a future mobile card game.
+Guandan is currently in **Milestone 1**, building the authoritative lobby on the accepted M0 repository and deployment foundation.
 
 ## Planned components
 
@@ -22,7 +22,7 @@ packages/
 docs/
 ```
 
-The four application and package directories are managed as npm workspaces from the repository root. M0-009 adds one isolated infrastructure smoke table and a mobile verification screen; production persistence and game logic remain unimplemented.
+The four application and package directories are managed as npm workspaces from the repository root. M1 now includes strict lobby foundations and authoritative process-local room creation through Socket.IO. Room joining, passwords, lobby UI, lobby persistence, and game logic remain unimplemented; M0's isolated infrastructure smoke table and mobile verification screen remain unchanged.
 
 ## Runtime
 

@@ -3,7 +3,9 @@ import { after, before, describe, it } from 'node:test';
 
 import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
+  LOBBY_CREATE_ROOM_EVENT,
   SCAFFOLD_PING_EVENT,
+  type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
@@ -17,6 +19,7 @@ import {
   InfrastructureSmokeDatabaseError,
   type Database,
 } from '../src/database.js';
+import type { LobbyRuntime } from '../src/lobby/runtime.js';
 import { createGuandanServer } from '../src/server.js';
 import { startServer, type RunningServer } from '../src/start.js';
 
@@ -201,6 +204,173 @@ describe('Socket.IO scaffold', () => {
   });
 });
 
+describe('Socket.IO create-room integration', () => {
+  it('returns structured success and replays an identical command', async () => {
+    const { client, close } = await startSocketTest(createFakeDatabase());
+    const command = {
+      commandId: '11111111-1111-4111-8111-111111111111',
+      displayName: '  Ａｌｅｘ  ',
+      settings: { startingLevel: 2, turnTimer: 'off' },
+    };
+
+    try {
+      const first = await waitForCreateRoomAcknowledgement(client, command);
+      assert.equal(first.status, 'ok');
+      if (first.status === 'ok') {
+        assert.equal(first.commandId, command.commandId);
+        assert.equal(first.roomRevision, 0);
+        assert.equal(first.snapshot.players[0]?.displayName, 'Alex');
+        assert.equal(first.snapshot.players.length, 1);
+      }
+      const retry = await waitForCreateRoomAcknowledgement(client, command);
+      assert.deepEqual(retry, first);
+      assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects invalid payload, command conflict, and an already-bound new command', async () => {
+    const { client, close } = await startSocketTest(createFakeDatabase());
+    const command = {
+      commandId: '22222222-2222-4222-8222-222222222222',
+      displayName: 'Alex',
+      settings: { startingLevel: 2, turnTimer: 30 },
+    };
+
+    try {
+      assert.deepEqual(
+        await waitForCreateRoomAcknowledgement(client, {
+          ...command,
+          roomId: '33333333-3333-4333-8333-333333333333',
+        }),
+        {
+          status: 'error',
+          code: 'INVALID_PAYLOAD',
+          message: 'Invalid create-room command payload',
+          commandId: command.commandId,
+        },
+      );
+      assert.equal(
+        (await waitForCreateRoomAcknowledgement(client, command)).status,
+        'ok',
+      );
+      const conflict = await waitForCreateRoomAcknowledgement(client, {
+        ...command,
+        displayName: 'Blair',
+      });
+      assert.equal(conflict.status, 'error');
+      if (conflict.status === 'error') {
+        assert.equal(conflict.code, 'COMMAND_ID_CONFLICT');
+      }
+      const alreadyBound = await waitForCreateRoomAcknowledgement(client, {
+        ...command,
+        commandId: '33333333-3333-4333-8333-333333333333',
+      });
+      assert.equal(alreadyBound.status, 'error');
+      if (alreadyBound.status === 'error') {
+        assert.equal(alreadyBound.code, 'ALREADY_IN_ROOM');
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it('creates isolated rooms for two different sockets without broadcasting', async () => {
+    const database = createFakeDatabase();
+    const runningServer = await startServer(
+      {
+        database: {
+          caPath: 'test-ca.crt',
+          connectionString: 'test-configuration',
+        },
+        host: '127.0.0.1',
+        port: 0,
+      },
+      { createDatabase: () => database, createServer: createGuandanServer },
+    );
+    const first = createSocketClient(
+      `http://127.0.0.1:${runningServer.address.port}`,
+      { forceNew: true, reconnection: false, transports: ['websocket'] },
+    );
+    const second = createSocketClient(
+      `http://127.0.0.1:${runningServer.address.port}`,
+      { forceNew: true, reconnection: false, transports: ['websocket'] },
+    );
+    let unsolicitedEvents = 0;
+    first.onAny((event) => {
+      if (event !== 'connect') {
+        unsolicitedEvents += 1;
+      }
+    });
+
+    try {
+      await Promise.all([waitForConnection(first), waitForConnection(second)]);
+      const firstResult = await waitForCreateRoomAcknowledgement(first, {
+        commandId: '44444444-4444-4444-8444-444444444444',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 'off' },
+      });
+      const secondResult = await waitForCreateRoomAcknowledgement(second, {
+        commandId: '55555555-5555-4555-8555-555555555555',
+        displayName: 'Blair',
+        settings: { startingLevel: 7, turnTimer: 60 },
+      });
+      assert.equal(firstResult.status, 'ok');
+      assert.equal(secondResult.status, 'ok');
+      if (firstResult.status === 'ok' && secondResult.status === 'ok') {
+        assert.notEqual(
+          firstResult.snapshot.roomId,
+          secondResult.snapshot.roomId,
+        );
+        assert.notEqual(
+          firstResult.snapshot.roomCode,
+          secondResult.snapshot.roomCode,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(unsolicitedEvents, 0);
+    } finally {
+      first.disconnect();
+      second.disconnect();
+      await runningServer.close();
+    }
+  });
+
+  it('survives a create-room runtime failure and keeps existing handlers functional', async () => {
+    const failingRuntime: LobbyRuntime = {
+      createRoom: () => {
+        throw new Error(READY_ERROR_MARKER);
+      },
+    };
+    const { client, close } = await startSocketTest(
+      createFakeDatabase(),
+      failingRuntime,
+    );
+    const command = {
+      commandId: '66666666-6666-4666-8666-666666666666',
+      displayName: 'Alex',
+      settings: { startingLevel: 2, turnTimer: 'off' },
+    };
+
+    try {
+      const response = await waitForCreateRoomAcknowledgement(client, command);
+      assert.deepEqual(response, {
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Room creation failed',
+        commandId: command.commandId,
+      });
+      assert.equal(response.message.includes(READY_ERROR_MARKER), false);
+      assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
+      const smoke = await waitForSmokeAcknowledgement(client, COMMAND);
+      assert.equal(smoke.status, 'ok');
+    } finally {
+      await close();
+    }
+  });
+});
+
 describe('Socket.IO database smoke failures', () => {
   it('rejects invalid payloads before calling the database', async () => {
     let databaseCalls = 0;
@@ -293,7 +463,10 @@ describe('Socket.IO database smoke failures', () => {
   });
 });
 
-async function startSocketTest(database: Database): Promise<{
+async function startSocketTest(
+  database: Database,
+  lobbyRuntime?: LobbyRuntime,
+): Promise<{
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>;
   close: () => Promise<void>;
 }> {
@@ -308,7 +481,8 @@ async function startSocketTest(database: Database): Promise<{
     },
     {
       createDatabase: () => database,
-      createServer: createGuandanServer,
+      createServer: (createdDatabase) =>
+        createGuandanServer(createdDatabase, lobbyRuntime),
     },
   );
   const client = createSocketClient(
@@ -328,6 +502,22 @@ async function startSocketTest(database: Database): Promise<{
       await runningServer.close();
     },
   };
+}
+
+function waitForCreateRoomAcknowledgement(
+  client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
+  payload: unknown,
+): Promise<CreateRoomAcknowledgement> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Socket.IO create-room acknowledgement timed out'));
+    }, 5_000);
+
+    client.emit(LOBBY_CREATE_ROOM_EVENT, payload, (response) => {
+      clearTimeout(timer);
+      resolve(response);
+    });
+  });
 }
 
 function waitForSmokeAcknowledgement(

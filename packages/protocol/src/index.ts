@@ -1,5 +1,10 @@
+import {
+  LOBBY_CREATE_ROOM_EVENT,
+  type CreateRoomAcknowledgement,
+} from './create-room.js';
 import { isCanonicalUuidV4 } from './identifiers.js';
 
+export * from './create-room.js';
 export * from './identifiers.js';
 export * from './lobby.js';
 
@@ -50,6 +55,10 @@ export interface ScaffoldClientToServerEvents {
   [INFRASTRUCTURE_DATABASE_SMOKE_EVENT]: (
     command: unknown,
     acknowledge: (response: InfrastructureDatabaseSmokeAcknowledgement) => void,
+  ) => void;
+  [LOBBY_CREATE_ROOM_EVENT]: (
+    command: unknown,
+    acknowledge: (response: CreateRoomAcknowledgement) => void,
   ) => void;
 }
 
