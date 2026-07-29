@@ -1,3 +1,8 @@
+import { isCanonicalUuidV4 } from './identifiers.js';
+
+export * from './identifiers.js';
+export * from './lobby.js';
+
 export const SCAFFOLD_PING_EVENT = 'scaffold:ping';
 export const INFRASTRUCTURE_DATABASE_SMOKE_EVENT =
   'infrastructure:database-smoke';
@@ -54,8 +59,6 @@ export interface ScaffoldPingResponse {
   status: 'ok';
 }
 
-const UUID_V4_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const COMMAND_KEYS = new Set(['commandId', 'probeToken']);
 const SUCCESS_KEYS = new Set([
   'status',
@@ -78,7 +81,7 @@ const ERROR_CODE_SET = new Set<string>(INFRASTRUCTURE_SMOKE_ERROR_CODES);
 export function isInfrastructureSmokeIdentifier(
   value: unknown,
 ): value is string {
-  return typeof value === 'string' && UUID_V4_PATTERN.test(value);
+  return isCanonicalUuidV4(value);
 }
 
 export function parseInfrastructureDatabaseSmokeCommand(

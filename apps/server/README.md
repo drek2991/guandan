@@ -1,6 +1,6 @@
 # Server
 
-The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace currently provides only the process, HTTP, real-time connection, and lifecycle scaffold; rooms, players, cards, persistence, and game logic are not implemented.
+The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, and pure M1 lobby-state foundations. It does not yet create or join rooms, register lobby Socket.IO handlers, persist lobby state, or implement cards and game logic.
 
 Run commands from the repository root:
 
@@ -55,3 +55,9 @@ GET /ready
 It returns HTTP 200 with a stable ready response after a successful database query, or a sanitized HTTP 503 response when the database is unavailable. `/health` does not query the database.
 
 Socket.IO retains the temporary `scaffold:ping` acknowledgement and adds the infrastructure-only `infrastructure:database-smoke` command from `@guandan/protocol`. The smoke command performs a transactional fixed-row upsert and exact readback through the authoritative server; it is not a lobby or gameplay protocol. Apply and verify its migration from the repository root with `npm run server:migrate:smoke`, and run configured real-database verification with `npm run server:verify:database-smoke`.
+
+## Lobby state foundations
+
+M1-001 adds pure server-internal lobby types, complete-state invariants, structural start eligibility, and player-specific `LobbySnapshotV1` projection under `src/lobby`. The internal model owns display-name uniqueness keys and stable join order while exposing only public settings and player fields through `@guandan/protocol`. Internal settings contain only starting level, turn timer, and `hasPassword`; no password material, socket ID, reconnect credential, persistence field, or gameplay state belongs to this model.
+
+No room lifecycle or mutation behavior is registered with Socket.IO in M1-001. See [the lobby-state foundation contract](../../docs/m1-001-lobby-state-foundations.md) for ownership, invariants, ordering, revisions, capabilities, acknowledgement foundations, and explicit exclusions.
