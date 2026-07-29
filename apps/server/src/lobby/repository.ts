@@ -61,6 +61,10 @@ export interface LobbyRepository {
 export function createInMemoryLobbyRepository(): LobbyRepository {
   const roomsById = new Map<RoomId, LobbyRoomState>();
   const roomIdsByCode = new Map<RoomCode, RoomId>();
+  const previousRoomsForRollback = new WeakMap<
+    LobbyRoomState,
+    LobbyRoomState
+  >();
 
   return {
     insert(room): LobbyRoomState {
@@ -118,6 +122,7 @@ export function createInMemoryLobbyRepository(): LobbyRepository {
 
       assertValidLobbyRoomState(nextRoom);
       const storedRoom = cloneAndFreezeRoom(nextRoom);
+      previousRoomsForRollback.set(storedRoom, previousRoom);
       roomsById.set(roomId, storedRoom);
       return { previousRoom, storedRoom };
     },
@@ -134,7 +139,8 @@ export function createInMemoryLobbyRepository(): LobbyRepository {
         previousRoom.roomId !== roomId ||
         currentRoom.roomCode !== previousRoom.roomCode ||
         roomIdsByCode.get(previousRoom.roomCode) !== roomId ||
-        previousRoom.revision + 1 !== expectedCurrentRevision
+        previousRoom.revision + 1 !== expectedCurrentRevision ||
+        previousRoomsForRollback.get(currentRoom) !== previousRoom
       ) {
         throw new LobbyRepositoryReplaceError('rollback-state-mismatch');
       }

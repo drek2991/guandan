@@ -80,7 +80,7 @@ It deep-clones and recursively freezes the next room, swaps only the ID-index va
 
 After replacement, binding, projection, acknowledgement validation, or receipt insertion can still fail. Rollback attempts both conditional socket unbinding and exact room restoration even if either action fails.
 
-Restoration requires the currently stored room still to have the expected post-join revision and matching ID/code/indexes, while the supplied previous room must have the exact preceding revision and pass complete invariants. It restores a deep-cloned, recursively frozen value equivalent to the previous room and refuses to overwrite newer or unrelated state. Any cleanup failure becomes sanitized `INTERNAL_ERROR`; no success receipt is stored.
+Restoration requires the currently stored room still to be the replacement produced by the matching operation at the expected post-join revision, with matching ID/code/indexes, while the supplied previous room must be that replacement's recorded prior immutable value at the exact preceding revision and pass complete invariants. It restores a deep-cloned, recursively frozen value equivalent to the previous room and refuses reconstructed inputs, newer state, or unrelated state. Any cleanup failure becomes sanitized `INTERNAL_ERROR`; no success receipt is stored.
 
 ## Global lobby command IDs
 

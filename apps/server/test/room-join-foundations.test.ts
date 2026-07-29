@@ -285,10 +285,10 @@ describe('immutable repository replacement', () => {
     assert.equal(Object.isFrozen(restored.players[0]), true);
   });
 
-  it('owns a frozen clone of the rollback input', () => {
+  it('rejects a reconstructed rollback value', () => {
     const repository = createInMemoryLobbyRepository();
     const previous = repository.insert(room());
-    repository.replaceRoom({
+    const replacement = repository.replaceRoom({
       roomId: ROOM_ID,
       expectedRevision: 0,
       nextRoom: nextRoom(previous),
@@ -298,17 +298,15 @@ describe('immutable repository replacement', () => {
       settings: { ...previous.settings },
       players: previous.players.map((entry) => ({ ...entry })),
     };
-    const restored = repository.restoreRoomForRollback({
-      roomId: ROOM_ID,
-      expectedCurrentRevision: 1,
-      previousRoom: rollbackInput,
-    });
 
-    rollbackInput.settings.startingLevel = 7;
-    rollbackInput.players[0]!.displayName = 'Changed';
-    assert.equal(restored.settings.startingLevel, 2);
-    assert.equal(restored.players[0]?.displayName, 'Alex');
-    assert.equal(repository.getByCode('ABC234'), restored);
+    assert.throws(() =>
+      repository.restoreRoomForRollback({
+        roomId: ROOM_ID,
+        expectedCurrentRevision: 1,
+        previousRoom: rollbackInput,
+      }),
+    );
+    assert.equal(repository.getByCode('ABC234'), replacement.storedRoom);
   });
 
   it('refuses rollback over a newer room state', () => {
