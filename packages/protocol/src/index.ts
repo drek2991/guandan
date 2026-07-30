@@ -8,11 +8,16 @@ import {
   type JoinRoomAcknowledgement,
 } from './join-room.js';
 import { LOBBY_SNAPSHOT_EVENT, type LobbySnapshotV1 } from './lobby.js';
+import {
+  LOBBY_SET_SEAT_EVENT,
+  type SetSeatAcknowledgement,
+} from './set-seat.js';
 
 export * from './create-room.js';
 export * from './identifiers.js';
 export * from './join-room.js';
 export * from './lobby.js';
+export * from './set-seat.js';
 
 export const SCAFFOLD_PING_EVENT = 'scaffold:ping';
 export const INFRASTRUCTURE_DATABASE_SMOKE_EVENT =
@@ -69,6 +74,10 @@ export interface ScaffoldClientToServerEvents {
   [LOBBY_JOIN_ROOM_EVENT]: (
     command: unknown,
     acknowledge: (response: JoinRoomAcknowledgement) => void,
+  ) => void;
+  [LOBBY_SET_SEAT_EVENT]: (
+    command: unknown,
+    acknowledge: (response: SetSeatAcknowledgement) => void,
   ) => void;
 }
 

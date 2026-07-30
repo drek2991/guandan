@@ -7,6 +7,7 @@ import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   LOBBY_CREATE_ROOM_EVENT,
   LOBBY_JOIN_ROOM_EVENT,
+  LOBBY_SET_SEAT_EVENT,
   SCAFFOLD_PING_EVENT,
   isInfrastructureSmokeIdentifier,
   parseCommandId,
@@ -15,12 +16,15 @@ import {
   parseInfrastructureDatabaseSmokeCommand,
   parseJoinRoomErrorAcknowledgement,
   parseJoinRoomSuccess,
+  parseSetSeatErrorAcknowledgement,
+  parseSetSeatSuccess,
   type CommandId,
   type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type InfrastructureSmokeErrorCode,
   type JoinRoomAcknowledgement,
   type ScaffoldClientToServerEvents,
+  type SetSeatAcknowledgement,
   type ScaffoldServerToClientEvents,
 } from '@guandan/protocol';
 import { Server as SocketIoServer, type Socket } from 'socket.io';
@@ -88,6 +92,17 @@ export function createGuandanServer(
       }
 
       void handleJoinRoom(io, lobbyRuntime, socket, payload, acknowledge);
+    });
+
+    socket.on(LOBBY_SET_SEAT_EVENT, (payload, acknowledge) => {
+      if (typeof acknowledge !== 'function') {
+        console.error(
+          'Lobby set-seat rejected: acknowledgement callback missing',
+        );
+        return;
+      }
+
+      void handleSetSeat(io, lobbyRuntime, socket, payload, acknowledge);
     });
 
     socket.on('disconnect', (reason) => {
@@ -169,6 +184,35 @@ async function handleJoinRoom(
   logCommandError('join-room', completion.acknowledgement);
 }
 
+async function handleSetSeat(
+  io: LobbySocketServer,
+  lobbyRuntime: LobbyRuntime,
+  socket: LobbySocket,
+  payload: unknown,
+  acknowledge: (response: SetSeatAcknowledgement) => void,
+): Promise<void> {
+  let response: SetSeatAcknowledgement;
+  try {
+    response = lobbyRuntime.setSeat(socket.id, payload);
+  } catch {
+    response = createSetSeatInternalError(payload);
+  }
+
+  const completion = await completeLobbyCommandTransport(response, {
+    commandKind: 'set-seat',
+    initiatingSocket: socket,
+    getActiveSocket: (socketId) => io.sockets.sockets.get(socketId),
+    prepareDeliveries: (roomId) =>
+      lobbyRuntime.prepareLobbySnapshotDeliveries(roomId),
+    parseSuccess: parseSetSeatSuccess,
+    createInternalError: createSetSeatInternalError,
+    logger: { info: console.log, error: console.error },
+  });
+  acknowledge(completion.acknowledgement);
+  completion.afterAcknowledgement?.();
+  logCommandError('set-seat', completion.acknowledgement);
+}
+
 function createRoomInternalError(value: unknown): CreateRoomAcknowledgement {
   const commandId = getCommandId(value);
   const response = parseCreateRoomErrorAcknowledgement({
@@ -197,9 +241,26 @@ function createJoinRoomInternalError(value: unknown): JoinRoomAcknowledgement {
   return response;
 }
 
+function createSetSeatInternalError(value: unknown): SetSeatAcknowledgement {
+  const commandId = getCommandId(value);
+  const response = parseSetSeatErrorAcknowledgement({
+    status: 'error',
+    code: 'INTERNAL_ERROR',
+    message: 'Seat selection failed',
+    ...(commandId === undefined ? {} : { commandId }),
+  });
+  if (response === undefined) {
+    throw new Error('Set-seat internal error is invalid');
+  }
+  return response;
+}
+
 function logCommandError(
-  commandKind: 'create-room' | 'join-room',
-  response: CreateRoomAcknowledgement | JoinRoomAcknowledgement,
+  commandKind: 'create-room' | 'join-room' | 'set-seat',
+  response:
+    | CreateRoomAcknowledgement
+    | JoinRoomAcknowledgement
+    | SetSeatAcknowledgement,
 ): void {
   if (response.status === 'error') {
     console.error(

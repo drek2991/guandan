@@ -25,6 +25,8 @@ M1-003 adds the exact `lobby:join-room` event, strict room-code plus normalized-
 
 M1-004 adds the canonical server-to-client `lobby:snapshot` event carrying exactly one existing `LobbySnapshotV1` payload with no event acknowledgement. The protocol package remains independent from Socket.IO and adds no transport envelope or duplicate parser. The server projects the player-specific payload; mobile snapshot subscription remains unimplemented. See [`docs/m1-004-lobby-snapshot-delivery.md`](../../docs/m1-004-lobby-snapshot-delivery.md).
 
+M1-005 adds the exact `lobby:set-seat` command with only command ID, known revision, and seat `0 | 1 | 2 | 3 | null`; no room/player authority or readiness field is accepted. Its acknowledgement uses the existing lobby-mutation success and a command-specific error union with stale-only current revision. The command supports authoritative self-selection and clearing only; mobile UI, swapping/displacement, becoming ready, persistence, and gameplay remain unimplemented. See [`docs/m1-005-authoritative-seat-selection.md`](../../docs/m1-005-authoritative-seat-selection.md).
+
 Run from the repository root:
 
 ```sh

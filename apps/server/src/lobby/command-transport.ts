@@ -9,7 +9,7 @@ import {
 
 import type { LobbySnapshotDeliveryPlan } from './snapshot-delivery.js';
 
-export type LobbyCommandKind = 'create-room' | 'join-room';
+export type LobbyCommandKind = 'create-room' | 'join-room' | 'set-seat';
 
 export interface LobbyTransportSocket {
   id: string;

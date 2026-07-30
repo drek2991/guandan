@@ -4,6 +4,8 @@ import type {
   CreateRoomSuccess,
   JoinRoomCommand,
   JoinRoomSuccess,
+  SetSeatCommand,
+  SetSeatSuccess,
 } from '@guandan/protocol';
 
 export interface CreateRoomCommandReceipt {
@@ -20,8 +22,15 @@ export interface JoinRoomCommandReceipt {
   success: JoinRoomSuccess;
 }
 
+export interface SetSeatCommandReceipt {
+  commandKind: 'set-seat';
+  socketId: string;
+  command: SetSeatCommand;
+  success: SetSeatSuccess;
+}
+
 export type LobbyCommandReceipt =
-  CreateRoomCommandReceipt | JoinRoomCommandReceipt;
+  CreateRoomCommandReceipt | JoinRoomCommandReceipt | SetSeatCommandReceipt;
 
 export interface LobbyCommandReceiptStore {
   get(commandId: CommandId): LobbyCommandReceipt | undefined;
@@ -67,16 +76,16 @@ function freezeReceipt(receipt: LobbyCommandReceipt): LobbyCommandReceipt {
   }
 
   return Object.freeze({
-    commandKind: 'join-room',
+    commandKind: receipt.commandKind,
     socketId: receipt.socketId,
     command: Object.freeze({ ...receipt.command }),
     success: freezeSuccess(receipt.success),
-  });
+  }) as LobbyCommandReceipt;
 }
 
-function freezeSuccess<T extends CreateRoomSuccess | JoinRoomSuccess>(
-  success: T,
-): T {
+function freezeSuccess<
+  T extends CreateRoomSuccess | JoinRoomSuccess | SetSeatSuccess,
+>(success: T): T {
   const snapshot = success.snapshot;
   return Object.freeze({
     ...success,

@@ -5,6 +5,7 @@ import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   LOBBY_CREATE_ROOM_EVENT,
   LOBBY_JOIN_ROOM_EVENT,
+  LOBBY_SET_SEAT_EVENT,
   LOBBY_SNAPSHOT_EVENT,
   SCAFFOLD_PING_EVENT,
   parseLobbySnapshotV1,
@@ -15,6 +16,7 @@ import {
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
   type ScaffoldServerToClientEvents,
+  type SetSeatAcknowledgement,
 } from '@guandan/protocol';
 import { io as createSocketClient, type Socket } from 'socket.io-client';
 import request from 'supertest';
@@ -508,6 +510,11 @@ describe('Socket.IO create-room integration', () => {
         code: 'INTERNAL_ERROR',
         message: 'Room join failed',
       }),
+      setSeat: () => ({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Seat selection failed',
+      }),
       prepareLobbySnapshotDeliveries: () => {
         throw new Error('Transport planning should not run');
       },
@@ -846,6 +853,11 @@ describe('Socket.IO join-room integration', () => {
       joinRoom: () => {
         throw new Error(READY_ERROR_MARKER);
       },
+      setSeat: () => ({
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Seat selection failed',
+      }),
       prepareLobbySnapshotDeliveries: () => {
         throw new Error('Transport planning should not run');
       },
@@ -867,6 +879,324 @@ describe('Socket.IO join-room integration', () => {
         commandId: '80808080-8080-4080-8080-808080808080',
       });
       assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('Socket.IO set-seat integration', () => {
+  it('selects, moves, clears, no-ops, and delivers individualized snapshots', async () => {
+    const { server, clients, close } = await startMultiClientTest(3);
+    const [creator, member, isolated] = clients;
+    const creatorSnapshots: LobbySnapshotV1[] = [];
+    const memberSnapshots: LobbySnapshotV1[] = [];
+    const isolatedSnapshots: LobbySnapshotV1[] = [];
+    creator!.on(LOBBY_SNAPSHOT_EVENT, (value) => creatorSnapshots.push(value));
+    member!.on(LOBBY_SNAPSHOT_EVENT, (value) => memberSnapshots.push(value));
+    isolated!.on(LOBBY_SNAPSHOT_EVENT, (value) =>
+      isolatedSnapshots.push(value),
+    );
+
+    try {
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: '11111111-1111-4111-8111-111111111111',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 'off' },
+      });
+      const otherRoom = await waitForCreateRoomAcknowledgement(isolated!, {
+        commandId: '22222222-2222-4222-8222-222222222222',
+        displayName: 'Casey',
+        settings: { startingLevel: 7, turnTimer: 60 },
+      });
+      assert.equal(created.status, 'ok');
+      assert.equal(otherRoom.status, 'ok');
+      if (created.status !== 'ok') return;
+      const joined = await waitForJoinRoomAcknowledgement(member!, {
+        commandId: '33333333-3333-4333-8333-333333333333',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Blair',
+      });
+      assert.equal(joined.status, 'ok');
+      await waitForCondition(
+        () =>
+          creatorSnapshots.length === 2 &&
+          memberSnapshots.length === 1 &&
+          isolatedSnapshots.length === 1,
+      );
+
+      const trace: string[] = [];
+      member!.on(LOBBY_SNAPSHOT_EVENT, (value) => {
+        if (value.revision >= 2) trace.push(`snapshot:${value.revision}`);
+      });
+      const selected = await waitForSetSeatAcknowledgement(
+        member!,
+        {
+          commandId: '44444444-4444-4444-8444-444444444444',
+          knownRevision: 1,
+          seat: 2,
+        },
+        (value) =>
+          trace.push(
+            `ack:${value.status === 'ok' ? value.roomRevision : 'error'}`,
+          ),
+      );
+      assert.equal(selected.status, 'ok');
+      if (selected.status !== 'ok') return;
+      assert.equal(selected.roomRevision, 2);
+      assert.equal(
+        selected.snapshot.players.find((entry) => entry.isSelf)?.seat,
+        2,
+      );
+      assert.equal(
+        selected.snapshot.players.find((entry) => entry.isSelf)?.ready,
+        false,
+      );
+      await waitForCondition(
+        () => creatorSnapshots.length === 3 && memberSnapshots.length === 2,
+      );
+      assert.deepEqual(trace.slice(0, 2), ['snapshot:2', 'ack:2']);
+      assert.equal(creatorSnapshots[2]?.revision, 2);
+      assert.equal(memberSnapshots[1]?.revision, 2);
+      assert.notEqual(
+        creatorSnapshots[2]?.selfPlayerId,
+        memberSnapshots[1]?.selfPlayerId,
+      );
+      assert.equal(isolatedSnapshots.length, 1);
+      assert.equal(
+        server.io.sockets.sockets
+          .get(member!.id!)
+          ?.rooms.has(selected.snapshot.roomId),
+        true,
+      );
+
+      const noOp = await waitForSetSeatAcknowledgement(member!, {
+        commandId: '55555555-5555-4555-8555-555555555555',
+        knownRevision: 2,
+        seat: 2,
+      });
+      assert.equal(noOp.status, 'ok');
+      if (noOp.status === 'ok') assert.equal(noOp.roomRevision, 2);
+      await waitForCondition(
+        () => creatorSnapshots.length === 4 && memberSnapshots.length === 3,
+      );
+
+      const occupied = await waitForSetSeatAcknowledgement(creator!, {
+        commandId: '66666666-6666-4666-8666-666666666666',
+        knownRevision: 2,
+        seat: 2,
+      });
+      assert.equal(occupied.status, 'error');
+      if (occupied.status === 'error')
+        assert.equal(occupied.code, 'SEAT_TAKEN');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(creatorSnapshots.length, 4);
+      assert.equal(memberSnapshots.length, 3);
+
+      const moved = await waitForSetSeatAcknowledgement(member!, {
+        commandId: '77777777-7777-4777-8777-777777777777',
+        knownRevision: 2,
+        seat: 3,
+      });
+      assert.equal(moved.status, 'ok');
+      const cleared = await waitForSetSeatAcknowledgement(member!, {
+        commandId: '88888888-8888-4888-8888-888888888888',
+        knownRevision: 3,
+        seat: null,
+      });
+      assert.equal(cleared.status, 'ok');
+      if (cleared.status === 'ok') {
+        assert.equal(cleared.roomRevision, 4);
+        assert.equal(
+          cleared.snapshot.players.find((entry) => entry.isSelf)?.seat,
+          null,
+        );
+      }
+      assert.equal((await waitForAcknowledgement(creator!)).status, 'ok');
+      assert.equal(
+        (await waitForSmokeAcknowledgement(isolated!, COMMAND)).status,
+        'ok',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('enforces stale-before-occupancy and later-replay acknowledgement ordering', async () => {
+    const { clients, close } = await startMultiClientTest(2);
+    const [creator, member] = clients;
+    const memberSnapshots: LobbySnapshotV1[] = [];
+    const trace: string[] = [];
+    member!.on(LOBBY_SNAPSHOT_EVENT, (value) => {
+      memberSnapshots.push(value);
+      trace.push(`snapshot:${value.revision}`);
+    });
+
+    try {
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: '99999999-9999-4999-8999-999999999999',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 30 },
+      });
+      assert.equal(created.status, 'ok');
+      if (created.status !== 'ok') return;
+      const joined = await waitForJoinRoomAcknowledgement(member!, {
+        commandId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Blair',
+      });
+      assert.equal(joined.status, 'ok');
+      const originalCommand = {
+        commandId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        knownRevision: 1,
+        seat: 2,
+      };
+      const original = await waitForSetSeatAcknowledgement(
+        member!,
+        originalCommand,
+      );
+      assert.equal(original.status, 'ok');
+      const later = await waitForSetSeatAcknowledgement(creator!, {
+        commandId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        knownRevision: 2,
+        seat: 1,
+      });
+      assert.equal(later.status, 'ok');
+      await waitForCondition(() => memberSnapshots.at(-1)?.revision === 3);
+
+      const stale = await waitForSetSeatAcknowledgement(member!, {
+        commandId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        knownRevision: 2,
+        seat: 1,
+      });
+      assert.equal(stale.status, 'error');
+      if (stale.status === 'error') {
+        assert.equal(stale.code, 'STALE_REVISION');
+        assert.equal(stale.currentRevision, 3);
+      }
+      const taken = await waitForSetSeatAcknowledgement(member!, {
+        commandId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        knownRevision: 3,
+        seat: 1,
+      });
+      assert.equal(taken.status, 'error');
+      if (taken.status === 'error') assert.equal(taken.code, 'SEAT_TAKEN');
+
+      trace.length = 0;
+      const replay = await waitForSetSeatAcknowledgement(
+        member!,
+        originalCommand,
+        (value) =>
+          trace.push(
+            `ack:${value.status === 'ok' ? value.roomRevision : 'error'}`,
+          ),
+      );
+      assert.deepEqual(replay, original);
+      await waitForCondition(() => trace.length === 2);
+      assert.deepEqual(trace, ['ack:2', 'snapshot:3']);
+      assert.equal(memberSnapshots.at(-1)?.revision, 3);
+      assert.equal(
+        memberSnapshots.at(-1)?.players.find((entry) => entry.isSelf)?.seat,
+        2,
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('preserves committed seat state and receipt after transport failure', async () => {
+    const baseRuntime = createLobbyRuntime();
+    let failSetSeatPlanning = true;
+    const runtime: LobbyRuntime = {
+      ...baseRuntime,
+      prepareLobbySnapshotDeliveries: (roomId) => {
+        if (failSetSeatPlanning) {
+          failSetSeatPlanning = false;
+          return baseRuntime.prepareLobbySnapshotDeliveries(roomId);
+        }
+        throw new Error(READY_ERROR_MARKER);
+      },
+    };
+    const { client, close } = await startSocketTest(
+      createFakeDatabase(),
+      runtime,
+    );
+    const snapshots: LobbySnapshotV1[] = [];
+    client.on(LOBBY_SNAPSHOT_EVENT, (value) => snapshots.push(value));
+    try {
+      const created = await waitForCreateRoomAcknowledgement(client, {
+        commandId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 'off' },
+      });
+      assert.equal(created.status, 'ok');
+      const command = {
+        commandId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        knownRevision: 0,
+        seat: 2,
+      };
+      const failure = await waitForSetSeatAcknowledgement(client, command);
+      assert.equal(failure.status, 'error');
+      if (failure.status === 'error')
+        assert.equal(failure.code, 'INTERNAL_ERROR');
+      assert.equal(snapshots.length, 1);
+
+      const newCommand = await waitForSetSeatAcknowledgement(client, {
+        commandId: '12121212-1212-4212-8212-121212121212',
+        knownRevision: 0,
+        seat: 3,
+      });
+      assert.equal(newCommand.status, 'error');
+      if (newCommand.status === 'error')
+        assert.equal(newCommand.code, 'STALE_REVISION');
+
+      const recoveredRuntime: LobbyRuntime = {
+        ...runtime,
+        prepareLobbySnapshotDeliveries:
+          baseRuntime.prepareLobbySnapshotDeliveries,
+      };
+      Object.assign(runtime, recoveredRuntime);
+      const recovered = await waitForSetSeatAcknowledgement(client, command);
+      assert.equal(recovered.status, 'ok');
+      if (recovered.status === 'ok') {
+        assert.equal(recovered.roomRevision, 1);
+        assert.equal(
+          recovered.snapshot.players.find((entry) => entry.isSelf)?.seat,
+          2,
+        );
+      }
+      await waitForCondition(() => snapshots.length === 2);
+    } finally {
+      await close();
+    }
+  });
+
+  it('sanitizes set-seat runtime failures and leaves other handlers alive', async () => {
+    const base = createLobbyRuntime();
+    const runtime: LobbyRuntime = {
+      ...base,
+      setSeat: () => {
+        throw new Error(READY_ERROR_MARKER);
+      },
+    };
+    const { client, close } = await startSocketTest(
+      createFakeDatabase(),
+      runtime,
+    );
+    try {
+      const response = await waitForSetSeatAcknowledgement(client, {
+        commandId: '13131313-1313-4313-8313-131313131313',
+        knownRevision: 0,
+        seat: 2,
+      });
+      assert.deepEqual(response, {
+        status: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Seat selection failed',
+        commandId: '13131313-1313-4313-8313-131313131313',
+      });
+      assert.equal(response.message.includes(READY_ERROR_MARKER), false);
+      assert.equal((await waitForAcknowledgement(client)).status, 'ok');
     } finally {
       await close();
     }
@@ -1086,6 +1416,24 @@ function waitForJoinRoomAcknowledgement(
     }, 5_000);
 
     client.emit(LOBBY_JOIN_ROOM_EVENT, payload, (response) => {
+      clearTimeout(timer);
+      onAcknowledge?.(response);
+      resolve(response);
+    });
+  });
+}
+
+function waitForSetSeatAcknowledgement(
+  client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
+  payload: unknown,
+  onAcknowledge?: (response: SetSeatAcknowledgement) => void,
+): Promise<SetSeatAcknowledgement> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Socket.IO set-seat acknowledgement timed out'));
+    }, 5_000);
+
+    client.emit(LOBBY_SET_SEAT_EVENT, payload, (response) => {
       clearTimeout(timer);
       onAcknowledge?.(response);
       resolve(response);

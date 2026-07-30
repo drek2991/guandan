@@ -177,6 +177,32 @@ describe('lobby command transport coordinator', () => {
     assert.deepEqual(trace, []);
   });
 
+  it('supports command-specific set-seat transport without weakening validation', async () => {
+    const trace: string[] = [];
+    const initiator = socket('initiator', trace);
+    const deps = dependencies(
+      initiator,
+      new Map([['initiator', initiator]]),
+      plan(),
+      trace,
+    );
+    deps.commandKind = 'set-seat';
+    const parseCalls: unknown[] = [];
+    deps.parseSuccess = (value) => {
+      parseCalls.push(value);
+      return parseLobbyMutationSuccess(value);
+    };
+
+    const acknowledgement = success();
+    const result = await completeLobbyCommandTransport(acknowledgement, deps);
+    assert.equal(result.acknowledgement, acknowledgement);
+    assert.deepEqual(parseCalls, [acknowledgement]);
+    assert.equal(
+      trace.some((entry) => entry.includes('kind=set-seat')),
+      true,
+    );
+  });
+
   it('plans before joining and queues current initiating snapshot before acknowledgement', async () => {
     const trace: string[] = [];
     const initiator = socket('initiator', trace);

@@ -1,6 +1,6 @@
 # Server
 
-The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, M1 lobby-state foundations, process-local authoritative create-room and join-room handlers, UUID channel membership, and individualized lobby snapshot delivery. The mobile app does not yet consume snapshots, and the server does not persist lobby state or implement cards and game logic.
+The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, M1 lobby-state foundations, process-local authoritative create-room, join-room, and self-seat handlers, UUID channel membership, and individualized lobby snapshot delivery. The mobile app does not yet consume snapshots, and the server does not persist lobby state or implement cards and game logic.
 
 Run commands from the repository root:
 
@@ -79,3 +79,9 @@ The authoritative join service performs no database or transport work and logs n
 M1-004 adds the canonical server-to-client `lobby:snapshot` event after successful create/join service results. The server completely prepares and validates one current `LobbySnapshotV1` per authoritative room binding, joins only the initiating socket to the UUID `roomId` channel, and emits each payload directly to its active bound socket. Socket.IO membership is transport metadata rather than recipient authority, and missing membership for other sockets is not silently repaired.
 
 Exact receipt replay retries transport without changing room state. When the room has advanced beyond a stored acknowledgement, the original acknowledgement is returned before the current initiating snapshot so the latest state-bearing delivery remains final. Transport failures preserve room state, connection bindings, revisions, and successful receipts. The mobile app does not yet subscribe to this event. See [the lobby snapshot-delivery contract](../../docs/m1-004-lobby-snapshot-delivery.md).
+
+## Authoritative self seat selection
+
+M1-005 registers `lobby:set-seat` for a player already bound to a lobby. The exact command carries only a global command ID, known room revision, and seat `0`–`3` or `null`. Actor and room authority come exclusively from the initiating socket binding. A current-revision select, move, or clear immutably replaces the room at revision +1 and resets only the acting player's readiness; occupied seats never swap or displace players.
+
+A same-seat request is a receipt-backed success without replacement, revision change, or readiness reset. Seat transitions use a narrow repository boundary with independent occupancy/invariant validation and operation-isolated exact rollback. Create, join, and seat commands share global receipts, and successful seat commands reuse individualized M1-004 snapshot transport. Mobile seat UI, becoming ready, host control of other players, persistence, and gameplay remain excluded. See [the authoritative self-seat contract](../../docs/m1-005-authoritative-seat-selection.md).

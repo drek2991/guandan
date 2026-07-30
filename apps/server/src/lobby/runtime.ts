@@ -4,6 +4,7 @@ import type {
   CreateRoomAcknowledgement,
   JoinRoomAcknowledgement,
   RoomId,
+  SetSeatAcknowledgement,
 } from '@guandan/protocol';
 
 import { createLobbyCommandReceiptStore } from './command-receipts.js';
@@ -12,6 +13,7 @@ import { createCreateRoomService } from './create-room.js';
 import { createJoinRoomService } from './join-room.js';
 import { createInMemoryLobbyRepository } from './repository.js';
 import { createRoomCodeAllocator } from './room-code.js';
+import { createSetSeatService } from './set-seat.js';
 import {
   createLobbySnapshotDeliveryPlanner,
   type LobbySnapshotDeliveryPlan,
@@ -20,6 +22,7 @@ import {
 export interface LobbyRuntime {
   createRoom(socketId: string, rawCommand: unknown): CreateRoomAcknowledgement;
   joinRoom(socketId: string, rawCommand: unknown): JoinRoomAcknowledgement;
+  setSeat(socketId: string, rawCommand: unknown): SetSeatAcknowledgement;
   prepareLobbySnapshotDeliveries(roomId: RoomId): LobbySnapshotDeliveryPlan;
 }
 
@@ -41,6 +44,11 @@ export function createLobbyRuntime(): LobbyRuntime {
     receiptStore,
     generateIdentifier: randomUUID,
   });
+  const setSeatService = createSetSeatService({
+    repository,
+    connectionRegistry,
+    receiptStore,
+  });
   const snapshotDeliveryPlanner = createLobbySnapshotDeliveryPlanner({
     repository,
     connectionRegistry,
@@ -50,6 +58,8 @@ export function createLobbyRuntime(): LobbyRuntime {
     createRoom: (socketId, rawCommand) =>
       createService.create(socketId, rawCommand),
     joinRoom: (socketId, rawCommand) => joinService.join(socketId, rawCommand),
+    setSeat: (socketId, rawCommand) =>
+      setSeatService.setSeat(socketId, rawCommand),
     prepareLobbySnapshotDeliveries: (roomId) =>
       snapshotDeliveryPlanner.prepare(roomId),
   };
