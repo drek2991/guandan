@@ -8,6 +8,7 @@ import {
 } from './identifiers.js';
 
 export const INITIAL_LOBBY_REVISION = 0;
+export const LOBBY_SNAPSHOT_EVENT = 'lobby:snapshot';
 export const LOBBY_SNAPSHOT_VERSION = 1;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const LOBBY_SEATS = [0, 1, 2, 3] as const;

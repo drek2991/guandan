@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   CreateRoomAcknowledgement,
   JoinRoomAcknowledgement,
+  RoomId,
 } from '@guandan/protocol';
 
 import { createLobbyCommandReceiptStore } from './command-receipts.js';
@@ -11,10 +12,15 @@ import { createCreateRoomService } from './create-room.js';
 import { createJoinRoomService } from './join-room.js';
 import { createInMemoryLobbyRepository } from './repository.js';
 import { createRoomCodeAllocator } from './room-code.js';
+import {
+  createLobbySnapshotDeliveryPlanner,
+  type LobbySnapshotDeliveryPlan,
+} from './snapshot-delivery.js';
 
 export interface LobbyRuntime {
   createRoom(socketId: string, rawCommand: unknown): CreateRoomAcknowledgement;
   joinRoom(socketId: string, rawCommand: unknown): JoinRoomAcknowledgement;
+  prepareLobbySnapshotDeliveries(roomId: RoomId): LobbySnapshotDeliveryPlan;
 }
 
 export function createLobbyRuntime(): LobbyRuntime {
@@ -35,10 +41,16 @@ export function createLobbyRuntime(): LobbyRuntime {
     receiptStore,
     generateIdentifier: randomUUID,
   });
+  const snapshotDeliveryPlanner = createLobbySnapshotDeliveryPlanner({
+    repository,
+    connectionRegistry,
+  });
 
   return {
     createRoom: (socketId, rawCommand) =>
       createService.create(socketId, rawCommand),
     joinRoom: (socketId, rawCommand) => joinService.join(socketId, rawCommand),
+    prepareLobbySnapshotDeliveries: (roomId) =>
+      snapshotDeliveryPlanner.prepare(roomId),
   };
 }

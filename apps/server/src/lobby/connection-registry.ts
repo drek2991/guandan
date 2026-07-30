@@ -1,13 +1,18 @@
-import type { PlayerId, RoomId } from '@guandan/protocol';
+import { parseRoomId, type PlayerId, type RoomId } from '@guandan/protocol';
 
 export interface LobbyConnectionBinding {
   roomId: RoomId;
   playerId: PlayerId;
 }
 
+export interface LobbyConnectionMembership extends LobbyConnectionBinding {
+  socketId: string;
+}
+
 export interface LobbyConnectionRegistry {
   bind(socketId: string, binding: LobbyConnectionBinding): void;
   get(socketId: string): LobbyConnectionBinding | undefined;
+  listByRoomId(roomId: RoomId): readonly LobbyConnectionMembership[];
   unbindForRollback(socketId: string, binding: LobbyConnectionBinding): boolean;
 }
 
@@ -30,6 +35,19 @@ export function createLobbyConnectionRegistry(): LobbyConnectionRegistry {
     },
     get(socketId): LobbyConnectionBinding | undefined {
       return bindings.get(socketId);
+    },
+    listByRoomId(roomId): readonly LobbyConnectionMembership[] {
+      if (parseRoomId(roomId) === undefined) {
+        throw new Error('Lobby room ID is invalid');
+      }
+
+      return Object.freeze(
+        [...bindings.entries()]
+          .filter(([, binding]) => binding.roomId === roomId)
+          .map(([socketId, binding]) =>
+            Object.freeze({ socketId, ...binding }),
+          ),
+      );
     },
     unbindForRollback(socketId, binding): boolean {
       const current = bindings.get(socketId);

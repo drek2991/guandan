@@ -5,10 +5,13 @@ import {
   INFRASTRUCTURE_DATABASE_SMOKE_EVENT,
   LOBBY_CREATE_ROOM_EVENT,
   LOBBY_JOIN_ROOM_EVENT,
+  LOBBY_SNAPSHOT_EVENT,
   SCAFFOLD_PING_EVENT,
+  parseLobbySnapshotV1,
   type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type JoinRoomAcknowledgement,
+  type LobbySnapshotV1,
   type ScaffoldClientToServerEvents,
   type ScaffoldPingResponse,
   type ScaffoldServerToClientEvents,
@@ -21,8 +24,8 @@ import {
   InfrastructureSmokeDatabaseError,
   type Database,
 } from '../src/database.js';
-import type { LobbyRuntime } from '../src/lobby/runtime.js';
-import { createGuandanServer } from '../src/server.js';
+import { createLobbyRuntime, type LobbyRuntime } from '../src/lobby/runtime.js';
+import { createGuandanServer, type GuandanServer } from '../src/server.js';
 import { startServer, type RunningServer } from '../src/start.js';
 
 const READY_ERROR_MARKER = 'database-detail-marker';
@@ -207,26 +210,164 @@ describe('Socket.IO scaffold', () => {
 });
 
 describe('Socket.IO create-room integration', () => {
-  it('returns structured success and replays an identical command', async () => {
-    const { client, close } = await startSocketTest(createFakeDatabase());
+  it('joins the UUID channel, delivers before acknowledgement, and replays exactly', async () => {
+    const { client, server, close } =
+      await startSocketTest(createFakeDatabase());
     const command = {
       commandId: '11111111-1111-4111-8111-111111111111',
       displayName: '  Ａｌｅｘ  ',
       settings: { startingLevel: 2, turnTimer: 'off' },
     };
+    const trace: string[] = [];
+    const snapshots: LobbySnapshotV1[] = [];
+    client.on(LOBBY_SNAPSHOT_EVENT, (snapshot) => {
+      snapshots.push(snapshot);
+      trace.push(`snapshot:${snapshot.revision}`);
+    });
 
     try {
-      const first = await waitForCreateRoomAcknowledgement(client, command);
+      const first = await waitForCreateRoomAcknowledgement(
+        client,
+        command,
+        () => trace.push('ack:0'),
+      );
       assert.equal(first.status, 'ok');
       if (first.status === 'ok') {
         assert.equal(first.commandId, command.commandId);
         assert.equal(first.roomRevision, 0);
         assert.equal(first.snapshot.players[0]?.displayName, 'Alex');
         assert.equal(first.snapshot.players.length, 1);
+        assert.deepEqual(trace, ['snapshot:0', 'ack:0']);
+        assert.deepEqual(parseLobbySnapshotV1(snapshots[0]), snapshots[0]);
+        const serverSocket = server.io.sockets.sockets.get(client.id!);
+        assert.notEqual(serverSocket, undefined);
+        assert.equal(serverSocket!.rooms.has(first.snapshot.roomId), true);
+        assert.equal(serverSocket!.rooms.has(first.snapshot.roomCode), false);
       }
       const retry = await waitForCreateRoomAcknowledgement(client, command);
       assert.deepEqual(retry, first);
+      await waitForCondition(() => snapshots.length === 2);
+      assert.deepEqual(
+        snapshots.map((snapshot) => snapshot.revision),
+        [0, 0],
+      );
       assert.deepEqual(await waitForAcknowledgement(client), { status: 'ok' });
+    } finally {
+      await close();
+    }
+  });
+
+  it('returns stale create replay before the latest authoritative snapshot', async () => {
+    const { clients, close } = await startMultiClientTest(2);
+    const [creator, joiner] = clients;
+    const createCommand = {
+      commandId: '12121212-1212-4212-8212-121212121212',
+      displayName: 'Alex',
+      settings: { startingLevel: 2, turnTimer: 'off' },
+    };
+    const trace: string[] = [];
+    const creatorSnapshots: LobbySnapshotV1[] = [];
+    creator!.on(LOBBY_SNAPSHOT_EVENT, (snapshot) => {
+      creatorSnapshots.push(snapshot);
+      trace.push(`snapshot:${snapshot.revision}`);
+    });
+
+    try {
+      const original = await waitForCreateRoomAcknowledgement(
+        creator!,
+        createCommand,
+      );
+      assert.equal(original.status, 'ok');
+      if (original.status !== 'ok') return;
+      const joined = await waitForJoinRoomAcknowledgement(joiner!, {
+        commandId: '13131313-1313-4313-8313-131313131313',
+        roomCode: original.snapshot.roomCode,
+        displayName: 'Blair',
+      });
+      assert.equal(joined.status, 'ok');
+      await waitForCondition(() => creatorSnapshots.length === 2);
+
+      trace.length = 0;
+      const replay = await waitForCreateRoomAcknowledgement(
+        creator!,
+        createCommand,
+        (response) =>
+          trace.push(
+            `ack:${response.status === 'ok' ? response.roomRevision : 'error'}`,
+          ),
+      );
+      assert.deepEqual(replay, original);
+      await waitForCondition(() => creatorSnapshots.length === 3);
+      assert.deepEqual(trace, ['ack:0', 'snapshot:1']);
+      assert.equal(creatorSnapshots[2]?.revision, 1);
+      assert.equal(creatorSnapshots[2]?.players.length, 2);
+      assert.equal(joined.status === 'ok' ? joined.roomRevision : undefined, 1);
+
+      const newCommand = await waitForCreateRoomAcknowledgement(creator!, {
+        ...createCommand,
+        commandId: '14141414-1414-4414-8414-141414141414',
+      });
+      assert.equal(newCommand.status, 'error');
+      if (newCommand.status === 'error') {
+        assert.equal(newCommand.code, 'ALREADY_IN_ROOM');
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  it('preserves committed state and receipt when transport planning fails', async () => {
+    const baseRuntime = createLobbyRuntime();
+    let failPlanning = true;
+    const runtime: LobbyRuntime = {
+      ...baseRuntime,
+      prepareLobbySnapshotDeliveries: (roomId) => {
+        if (failPlanning) throw new Error(READY_ERROR_MARKER);
+        return baseRuntime.prepareLobbySnapshotDeliveries(roomId);
+      },
+    };
+    const { client, server, close } = await startSocketTest(
+      createFakeDatabase(),
+      runtime,
+    );
+    const command = {
+      commandId: '15151515-1515-4515-8515-151515151515',
+      displayName: 'Alex',
+      settings: { startingLevel: 7, turnTimer: 60 },
+    };
+    const snapshots: LobbySnapshotV1[] = [];
+    client.on(LOBBY_SNAPSHOT_EVENT, (snapshot) => snapshots.push(snapshot));
+
+    try {
+      const failure = await waitForCreateRoomAcknowledgement(client, command);
+      assert.equal(failure.status, 'error');
+      if (failure.status === 'error') {
+        assert.equal(failure.code, 'INTERNAL_ERROR');
+        assert.equal(failure.message.includes(READY_ERROR_MARKER), false);
+      }
+      assert.equal(snapshots.length, 0);
+      const socket = server.io.sockets.sockets.get(client.id!);
+      assert.notEqual(socket, undefined);
+      assert.equal(socket!.rooms.size, 1);
+
+      const newCommand = await waitForCreateRoomAcknowledgement(client, {
+        ...command,
+        commandId: '16161616-1616-4616-8616-161616161616',
+      });
+      assert.equal(newCommand.status, 'error');
+      if (newCommand.status === 'error') {
+        assert.equal(newCommand.code, 'ALREADY_IN_ROOM');
+      }
+
+      failPlanning = false;
+      const recovered = await waitForCreateRoomAcknowledgement(client, command);
+      assert.equal(recovered.status, 'ok');
+      if (recovered.status === 'ok') {
+        assert.equal(recovered.roomRevision, 0);
+        assert.equal(recovered.snapshot.players.length, 1);
+        assert.equal(socket!.rooms.has(recovered.snapshot.roomId), true);
+      }
+      await waitForCondition(() => snapshots.length === 1);
     } finally {
       await close();
     }
@@ -278,7 +419,7 @@ describe('Socket.IO create-room integration', () => {
     }
   });
 
-  it('creates isolated rooms for two different sockets without broadcasting', async () => {
+  it('creates isolated rooms and delivers only player-specific snapshots', async () => {
     const database = createFakeDatabase();
     const runningServer = await startServer(
       {
@@ -291,20 +432,28 @@ describe('Socket.IO create-room integration', () => {
       },
       { createDatabase: () => database, createServer: createGuandanServer },
     );
-    const first = createSocketClient(
-      `http://127.0.0.1:${runningServer.address.port}`,
-      { forceNew: true, reconnection: false, transports: ['websocket'] },
-    );
-    const second = createSocketClient(
-      `http://127.0.0.1:${runningServer.address.port}`,
-      { forceNew: true, reconnection: false, transports: ['websocket'] },
-    );
-    let unsolicitedEvents = 0;
-    first.onAny((event) => {
-      if (event !== 'connect') {
-        unsolicitedEvents += 1;
-      }
+    const first: Socket<
+      ScaffoldServerToClientEvents,
+      ScaffoldClientToServerEvents
+    > = createSocketClient(`http://127.0.0.1:${runningServer.address.port}`, {
+      forceNew: true,
+      reconnection: false,
+      transports: ['websocket'],
     });
+    const second: Socket<
+      ScaffoldServerToClientEvents,
+      ScaffoldClientToServerEvents
+    > = createSocketClient(`http://127.0.0.1:${runningServer.address.port}`, {
+      forceNew: true,
+      reconnection: false,
+      transports: ['websocket'],
+    });
+    const firstSnapshots: LobbySnapshotV1[] = [];
+    const secondSnapshots: LobbySnapshotV1[] = [];
+    first.on(LOBBY_SNAPSHOT_EVENT, (snapshot) => firstSnapshots.push(snapshot));
+    second.on(LOBBY_SNAPSHOT_EVENT, (snapshot) =>
+      secondSnapshots.push(snapshot),
+    );
 
     try {
       await Promise.all([waitForConnection(first), waitForConnection(second)]);
@@ -330,8 +479,18 @@ describe('Socket.IO create-room integration', () => {
           secondResult.snapshot.roomCode,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      assert.equal(unsolicitedEvents, 0);
+      await waitForCondition(
+        () => firstSnapshots.length === 1 && secondSnapshots.length === 1,
+      );
+      assert.equal(
+        firstSnapshots[0]?.roomId,
+        firstResult.status === 'ok' ? firstResult.snapshot.roomId : undefined,
+      );
+      assert.equal(
+        secondSnapshots[0]?.roomId,
+        secondResult.status === 'ok' ? secondResult.snapshot.roomId : undefined,
+      );
+      assert.notEqual(firstSnapshots[0]?.roomId, secondSnapshots[0]?.roomId);
     } finally {
       first.disconnect();
       second.disconnect();
@@ -349,6 +508,9 @@ describe('Socket.IO create-room integration', () => {
         code: 'INTERNAL_ERROR',
         message: 'Room join failed',
       }),
+      prepareLobbySnapshotDeliveries: () => {
+        throw new Error('Transport planning should not run');
+      },
     };
     const { client, close } = await startSocketTest(
       createFakeDatabase(),
@@ -379,11 +541,20 @@ describe('Socket.IO create-room integration', () => {
 });
 
 describe('Socket.IO join-room integration', () => {
-  it('lets a second client join a created room and replay exactly', async () => {
-    const { runningServer, clients, close } = await startMultiClientTest(2);
+  it('delivers individualized same-revision snapshots and replays exactly', async () => {
+    const { runningServer, server, clients, close } =
+      await startMultiClientTest(2);
     const [creator, joiner] = clients;
     assert.notEqual(creator, undefined);
     assert.notEqual(joiner, undefined);
+    const creatorSnapshots: LobbySnapshotV1[] = [];
+    const joinerSnapshots: LobbySnapshotV1[] = [];
+    creator!.on(LOBBY_SNAPSHOT_EVENT, (snapshot) =>
+      creatorSnapshots.push(snapshot),
+    );
+    joiner!.on(LOBBY_SNAPSHOT_EVENT, (snapshot) =>
+      joinerSnapshots.push(snapshot),
+    );
     try {
       const created = await waitForCreateRoomAcknowledgement(creator!, {
         commandId: '77777777-7777-4777-8777-777777777777',
@@ -392,6 +563,10 @@ describe('Socket.IO join-room integration', () => {
       });
       assert.equal(created.status, 'ok');
       if (created.status !== 'ok') return;
+      const creatorSocket = server.io.sockets.sockets.get(creator!.id!);
+      assert.notEqual(creatorSocket, undefined);
+      await creatorSocket!.leave(created.snapshot.roomId);
+      assert.equal(creatorSocket!.rooms.has(created.snapshot.roomId), false);
       const command = {
         commandId: '88888888-8888-4888-8888-888888888888',
         roomCode: created.snapshot.roomCode,
@@ -407,14 +582,106 @@ describe('Socket.IO join-room integration', () => {
           first.snapshot.selfPlayerId === first.snapshot.hostPlayerId,
           false,
         );
+        const joinerSocket = server.io.sockets.sockets.get(joiner!.id!);
+        assert.notEqual(joinerSocket, undefined);
+        assert.equal(joinerSocket!.rooms.has(first.snapshot.roomId), true);
+        assert.equal(joinerSocket!.rooms.has(first.snapshot.roomCode), false);
       }
+      await waitForCondition(
+        () => creatorSnapshots.length === 2 && joinerSnapshots.length === 1,
+      );
+      assert.equal(creatorSnapshots[1]?.revision, 1);
+      assert.equal(joinerSnapshots[0]?.revision, 1);
+      assert.equal(creatorSocket!.rooms.has(created.snapshot.roomId), false);
+      assert.equal(
+        creatorSnapshots[1]?.selfPlayerId,
+        created.snapshot.selfPlayerId,
+      );
+      assert.equal(
+        joinerSnapshots[0]?.selfPlayerId,
+        first.status === 'ok' ? first.snapshot.selfPlayerId : undefined,
+      );
+      assert.notEqual(
+        creatorSnapshots[1]?.selfPlayerId,
+        joinerSnapshots[0]?.selfPlayerId,
+      );
+      assert.equal(creatorSnapshots[1]?.capabilities.canChangeSettings, true);
+      assert.equal(joinerSnapshots[0]?.capabilities.canChangeSettings, false);
       const replay = await waitForJoinRoomAcknowledgement(joiner!, command);
       assert.deepEqual(replay, first);
+      await waitForCondition(
+        () => creatorSnapshots.length === 3 && joinerSnapshots.length === 2,
+      );
       assert.deepEqual(await waitForAcknowledgement(creator!), {
         status: 'ok',
       });
       assert.deepEqual(await waitForAcknowledgement(joiner!), { status: 'ok' });
       assert.notEqual(runningServer.address.port, 0);
+    } finally {
+      await close();
+    }
+  });
+
+  it('returns stale join replay before the latest authoritative snapshot', async () => {
+    const { clients, close } = await startMultiClientTest(3);
+    const [creator, firstJoiner, laterJoiner] = clients;
+    const trace: string[] = [];
+    const firstJoinerSnapshots: LobbySnapshotV1[] = [];
+    firstJoiner!.on(LOBBY_SNAPSHOT_EVENT, (snapshot) => {
+      firstJoinerSnapshots.push(snapshot);
+      trace.push(`snapshot:${snapshot.revision}`);
+    });
+
+    try {
+      const created = await waitForCreateRoomAcknowledgement(creator!, {
+        commandId: '17171717-1717-4717-8717-171717171717',
+        displayName: 'Alex',
+        settings: { startingLevel: 2, turnTimer: 30 },
+      });
+      assert.equal(created.status, 'ok');
+      if (created.status !== 'ok') return;
+      const command = {
+        commandId: '18181818-1818-4818-8818-181818181818',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Blair',
+      };
+      const original = await waitForJoinRoomAcknowledgement(
+        firstJoiner!,
+        command,
+      );
+      assert.equal(original.status, 'ok');
+      const later = await waitForJoinRoomAcknowledgement(laterJoiner!, {
+        commandId: '19191919-1919-4919-8919-191919191919',
+        roomCode: created.snapshot.roomCode,
+        displayName: 'Casey',
+      });
+      assert.equal(later.status, 'ok');
+      await waitForCondition(() => firstJoinerSnapshots.length === 2);
+
+      trace.length = 0;
+      const replay = await waitForJoinRoomAcknowledgement(
+        firstJoiner!,
+        command,
+        (response) =>
+          trace.push(
+            `ack:${response.status === 'ok' ? response.roomRevision : 'error'}`,
+          ),
+      );
+      assert.deepEqual(replay, original);
+      await waitForCondition(() => firstJoinerSnapshots.length === 3);
+      assert.deepEqual(trace, ['ack:1', 'snapshot:2']);
+      assert.equal(firstJoinerSnapshots[2]?.revision, 2);
+      assert.equal(firstJoinerSnapshots[2]?.players.length, 3);
+      assert.equal(later.status === 'ok' ? later.roomRevision : undefined, 2);
+
+      const newCommand = await waitForJoinRoomAcknowledgement(firstJoiner!, {
+        ...command,
+        commandId: '20212120-2121-4021-8021-202121202121',
+      });
+      assert.equal(newCommand.status, 'error');
+      if (newCommand.status === 'error') {
+        assert.equal(newCommand.code, 'ALREADY_IN_ROOM');
+      }
     } finally {
       await close();
     }
@@ -426,10 +693,10 @@ describe('Socket.IO join-room integration', () => {
     assert.notEqual(creator, undefined);
     assert.notEqual(joiner, undefined);
     assert.notEqual(other, undefined);
-    let unsolicited = 0;
-    creator!.onAny(() => {
-      unsolicited += 1;
-    });
+    const creatorSnapshots: LobbySnapshotV1[] = [];
+    creator!.on(LOBBY_SNAPSHOT_EVENT, (snapshot) =>
+      creatorSnapshots.push(snapshot),
+    );
     try {
       const invalid = await waitForJoinRoomAcknowledgement(joiner!, {
         commandId: '99999999-9999-4999-8999-999999999999',
@@ -492,8 +759,11 @@ describe('Socket.IO join-room integration', () => {
       });
       assert.equal(bound.status, 'error');
       if (bound.status === 'error') assert.equal(bound.code, 'ALREADY_IN_ROOM');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      assert.equal(unsolicited, 0);
+      await waitForCondition(() => creatorSnapshots.length === 2);
+      assert.deepEqual(
+        creatorSnapshots.map((snapshot) => snapshot.revision),
+        [0, 1],
+      );
       assert.equal(
         (await waitForSmokeAcknowledgement(other!, COMMAND)).status,
         'ok',
@@ -575,6 +845,9 @@ describe('Socket.IO join-room integration', () => {
       }),
       joinRoom: () => {
         throw new Error(READY_ERROR_MARKER);
+      },
+      prepareLobbySnapshotDeliveries: () => {
+        throw new Error('Transport planning should not run');
       },
     };
     const { client, close } = await startSocketTest(
@@ -697,8 +970,10 @@ async function startSocketTest(
   lobbyRuntime?: LobbyRuntime,
 ): Promise<{
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>;
+  server: GuandanServer;
   close: () => Promise<void>;
 }> {
+  let server: GuandanServer | undefined;
   const runningServer = await startServer(
     {
       database: {
@@ -710,8 +985,10 @@ async function startSocketTest(
     },
     {
       createDatabase: () => database,
-      createServer: (createdDatabase) =>
-        createGuandanServer(createdDatabase, lobbyRuntime),
+      createServer: (createdDatabase) => {
+        server = createGuandanServer(createdDatabase, lobbyRuntime);
+        return server;
+      },
     },
   );
   const client = createSocketClient(
@@ -724,8 +1001,10 @@ async function startSocketTest(
   );
   await waitForConnection(client);
 
+  assert.notEqual(server, undefined);
   return {
     client,
+    server: server!,
     async close(): Promise<void> {
       client.disconnect();
       await runningServer.close();
@@ -735,10 +1014,12 @@ async function startSocketTest(
 
 async function startMultiClientTest(count: number): Promise<{
   runningServer: RunningServer;
+  server: GuandanServer;
   clients: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>[];
   close: () => Promise<void>;
 }> {
   const database = createFakeDatabase();
+  let server: GuandanServer | undefined;
   const runningServer = await startServer(
     {
       database: {
@@ -748,7 +1029,13 @@ async function startMultiClientTest(count: number): Promise<{
       host: '127.0.0.1',
       port: 0,
     },
-    { createDatabase: () => database, createServer: createGuandanServer },
+    {
+      createDatabase: () => database,
+      createServer: (createdDatabase) => {
+        server = createGuandanServer(createdDatabase);
+        return server;
+      },
+    },
   );
   const clients = Array.from({ length: count }, () =>
     createSocketClient(`http://127.0.0.1:${runningServer.address.port}`, {
@@ -758,8 +1045,10 @@ async function startMultiClientTest(count: number): Promise<{
     }),
   );
   await Promise.all(clients.map((client) => waitForConnection(client)));
+  assert.notEqual(server, undefined);
   return {
     runningServer,
+    server: server!,
     clients,
     async close(): Promise<void> {
       clients.forEach((client) => client.disconnect());
@@ -771,6 +1060,7 @@ async function startMultiClientTest(count: number): Promise<{
 function waitForCreateRoomAcknowledgement(
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
   payload: unknown,
+  onAcknowledge?: (response: CreateRoomAcknowledgement) => void,
 ): Promise<CreateRoomAcknowledgement> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -779,6 +1069,7 @@ function waitForCreateRoomAcknowledgement(
 
     client.emit(LOBBY_CREATE_ROOM_EVENT, payload, (response) => {
       clearTimeout(timer);
+      onAcknowledge?.(response);
       resolve(response);
     });
   });
@@ -787,6 +1078,7 @@ function waitForCreateRoomAcknowledgement(
 function waitForJoinRoomAcknowledgement(
   client: Socket<ScaffoldServerToClientEvents, ScaffoldClientToServerEvents>,
   payload: unknown,
+  onAcknowledge?: (response: JoinRoomAcknowledgement) => void,
 ): Promise<JoinRoomAcknowledgement> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -795,6 +1087,7 @@ function waitForJoinRoomAcknowledgement(
 
     client.emit(LOBBY_JOIN_ROOM_EVENT, payload, (response) => {
       clearTimeout(timer);
+      onAcknowledge?.(response);
       resolve(response);
     });
   });
@@ -829,6 +1122,19 @@ function waitForAcknowledgement(
       resolve(response);
     });
   });
+}
+
+async function waitForCondition(
+  condition: () => boolean,
+  timeoutMilliseconds = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error('Socket.IO condition timed out');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function waitForConnection(

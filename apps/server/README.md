@@ -1,6 +1,6 @@
 # Server
 
-The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, M1 lobby-state foundations, and process-local authoritative create-room and join-room handlers. It does not yet broadcast lobby snapshots, persist lobby state, or implement cards and game logic.
+The authoritative Guandan server is built with Node.js, TypeScript, Express, and Socket.IO. This workspace provides the process, HTTP, real-time connection, database-smoke lifecycle scaffold, M1 lobby-state foundations, process-local authoritative create-room and join-room handlers, UUID channel membership, and individualized lobby snapshot delivery. The mobile app does not yet consume snapshots, and the server does not persist lobby state or implement cards and game logic.
 
 Run commands from the repository root:
 
@@ -72,4 +72,10 @@ The handler logs no room code, display name, socket ID, or raw command and perfo
 
 M1-003 registers `lobby:join-room`. The same process-local runtime looks up an exact code, rejects protected/full rooms and duplicate normalized names, appends one generated connected/unseated/non-ready non-host player, and atomically replaces the frozen room at revision +1. Create and join share global command-ID receipts, connection bindings, and deterministic idempotency; failed post-replacement work conditionally restores the exact previous room.
 
-The join handler performs no database access, `socket.join`, or snapshot broadcast and logs no room code, display name/key, socket ID, or raw payload. Password access, seats/readiness/settings mutation, leave/disconnect/reconnect handling, room deletion, persistence, mobile UI, and gameplay remain unimplemented. See [the authoritative room-join contract](../../docs/m1-003-authoritative-room-join.md).
+The authoritative join service performs no database or transport work and logs no room code, display name/key, socket ID, or raw payload. Password access, seats/readiness/settings mutation, leave/disconnect/reconnect handling, room deletion, persistence, mobile UI, and gameplay remain unimplemented. See [the authoritative room-join contract](../../docs/m1-003-authoritative-room-join.md).
+
+## Player-specific snapshot delivery
+
+M1-004 adds the canonical server-to-client `lobby:snapshot` event after successful create/join service results. The server completely prepares and validates one current `LobbySnapshotV1` per authoritative room binding, joins only the initiating socket to the UUID `roomId` channel, and emits each payload directly to its active bound socket. Socket.IO membership is transport metadata rather than recipient authority, and missing membership for other sockets is not silently repaired.
+
+Exact receipt replay retries transport without changing room state. When the room has advanced beyond a stored acknowledgement, the original acknowledgement is returned before the current initiating snapshot so the latest state-bearing delivery remains final. Transport failures preserve room state, connection bindings, revisions, and successful receipts. The mobile app does not yet subscribe to this event. See [the lobby snapshot-delivery contract](../../docs/m1-004-lobby-snapshot-delivery.md).

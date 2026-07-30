@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import {
   INITIAL_LOBBY_REVISION,
+  LOBBY_SNAPSHOT_EVENT,
   deriveDisplayNameKey,
   getPartnerSeat,
   normalizeDisplayName,
@@ -20,6 +22,8 @@ import {
   parseSeatIndex,
   parseStartingLevel,
   parseTurnTimer,
+  type LobbySnapshotV1,
+  type ScaffoldServerToClientEvents,
 } from '../src/index.js';
 
 const ROOM_ID = '11111111-1111-4111-8111-111111111111';
@@ -212,6 +216,23 @@ describe('display-name normalization', () => {
 });
 
 describe('LobbySnapshotV1 parsing', () => {
+  it('exports the canonical snapshot event with one typed payload', () => {
+    assert.equal(LOBBY_SNAPSHOT_EVENT, 'lobby:snapshot');
+    const listener: ScaffoldServerToClientEvents[typeof LOBBY_SNAPSHOT_EVENT] =
+      (snapshot) => {
+        assert.equal(snapshot.roomId, ROOM_ID);
+      };
+    listener(parseLobbySnapshotV1(validSnapshot) as LobbySnapshotV1);
+  });
+
+  it('keeps the protocol package independent from Socket.IO', () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { dependencies?: Record<string, string> };
+    assert.equal(packageJson.dependencies?.['socket.io'], undefined);
+    assert.equal(packageJson.dependencies?.['socket.io-client'], undefined);
+  });
+
   it('accepts a valid strict snapshot', () => {
     assert.deepEqual(parseLobbySnapshotV1(validSnapshot), validSnapshot);
   });

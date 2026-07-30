@@ -10,7 +10,12 @@ import {
   SCAFFOLD_PING_EVENT,
   isInfrastructureSmokeIdentifier,
   parseCommandId,
+  parseCreateRoomErrorAcknowledgement,
+  parseCreateRoomSuccess,
   parseInfrastructureDatabaseSmokeCommand,
+  parseJoinRoomErrorAcknowledgement,
+  parseJoinRoomSuccess,
+  type CommandId,
   type CreateRoomAcknowledgement,
   type InfrastructureDatabaseSmokeAcknowledgement,
   type InfrastructureSmokeErrorCode,
@@ -18,10 +23,11 @@ import {
   type ScaffoldClientToServerEvents,
   type ScaffoldServerToClientEvents,
 } from '@guandan/protocol';
-import { Server as SocketIoServer } from 'socket.io';
+import { Server as SocketIoServer, type Socket } from 'socket.io';
 
 import { createApp } from './app.js';
 import { InfrastructureSmokeDatabaseError, type Database } from './database.js';
+import { completeLobbyCommandTransport } from './lobby/command-transport.js';
 import { createLobbyRuntime, type LobbyRuntime } from './lobby/runtime.js';
 
 export interface GuandanServer {
@@ -70,7 +76,7 @@ export function createGuandanServer(
         return;
       }
 
-      handleCreateRoom(lobbyRuntime, socket.id, payload, acknowledge);
+      void handleCreateRoom(io, lobbyRuntime, socket, payload, acknowledge);
     });
 
     socket.on(LOBBY_JOIN_ROOM_EVENT, (payload, acknowledge) => {
@@ -81,7 +87,7 @@ export function createGuandanServer(
         return;
       }
 
-      handleJoinRoom(lobbyRuntime, socket.id, payload, acknowledge);
+      void handleJoinRoom(io, lobbyRuntime, socket, payload, acknowledge);
     });
 
     socket.on('disconnect', (reason) => {
@@ -96,77 +102,125 @@ export function createGuandanServer(
   };
 }
 
-function handleCreateRoom(
+type LobbySocket = Socket<
+  ScaffoldClientToServerEvents,
+  ScaffoldServerToClientEvents
+>;
+type LobbySocketServer = SocketIoServer<
+  ScaffoldClientToServerEvents,
+  ScaffoldServerToClientEvents
+>;
+
+async function handleCreateRoom(
+  io: LobbySocketServer,
   lobbyRuntime: LobbyRuntime,
-  socketId: string,
+  socket: LobbySocket,
   payload: unknown,
   acknowledge: (response: CreateRoomAcknowledgement) => void,
-): void {
+): Promise<void> {
   let response: CreateRoomAcknowledgement;
   try {
-    response = lobbyRuntime.createRoom(socketId, payload);
+    response = lobbyRuntime.createRoom(socket.id, payload);
   } catch {
-    response = {
-      status: 'error',
-      code: 'INTERNAL_ERROR',
-      message: 'Room creation failed',
-      ...getCreateCommandId(payload),
-    };
+    response = createRoomInternalError(payload);
   }
 
-  acknowledge(response);
-  if (response.status === 'ok') {
-    console.log(
-      `Lobby create-room command=${response.commandId} room=${response.snapshot.roomId} player=${response.snapshot.selfPlayerId} status=ok`,
-    );
-  } else {
-    console.error(
-      `Lobby create-room command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
-    );
-  }
+  const completion = await completeLobbyCommandTransport(response, {
+    commandKind: 'create-room',
+    initiatingSocket: socket,
+    getActiveSocket: (socketId) => io.sockets.sockets.get(socketId),
+    prepareDeliveries: (roomId) =>
+      lobbyRuntime.prepareLobbySnapshotDeliveries(roomId),
+    parseSuccess: parseCreateRoomSuccess,
+    createInternalError: createRoomInternalError,
+    logger: { info: console.log, error: console.error },
+  });
+  acknowledge(completion.acknowledgement);
+  completion.afterAcknowledgement?.();
+  logCommandError('create-room', completion.acknowledgement);
 }
 
-function handleJoinRoom(
+async function handleJoinRoom(
+  io: LobbySocketServer,
   lobbyRuntime: LobbyRuntime,
-  socketId: string,
+  socket: LobbySocket,
   payload: unknown,
   acknowledge: (response: JoinRoomAcknowledgement) => void,
-): void {
+): Promise<void> {
   let response: JoinRoomAcknowledgement;
   try {
-    response = lobbyRuntime.joinRoom(socketId, payload);
+    response = lobbyRuntime.joinRoom(socket.id, payload);
   } catch {
-    response = {
-      status: 'error',
-      code: 'INTERNAL_ERROR',
-      message: 'Room join failed',
-      ...getCreateCommandId(payload),
-    };
+    response = createJoinRoomInternalError(payload);
   }
 
-  acknowledge(response);
-  if (response.status === 'ok') {
-    console.log(
-      `Lobby join-room command=${response.commandId} room=${response.snapshot.roomId} player=${response.snapshot.selfPlayerId} status=ok`,
-    );
-  } else {
+  const completion = await completeLobbyCommandTransport(response, {
+    commandKind: 'join-room',
+    initiatingSocket: socket,
+    getActiveSocket: (socketId) => io.sockets.sockets.get(socketId),
+    prepareDeliveries: (roomId) =>
+      lobbyRuntime.prepareLobbySnapshotDeliveries(roomId),
+    parseSuccess: parseJoinRoomSuccess,
+    createInternalError: createJoinRoomInternalError,
+    logger: { info: console.log, error: console.error },
+  });
+  acknowledge(completion.acknowledgement);
+  completion.afterAcknowledgement?.();
+  logCommandError('join-room', completion.acknowledgement);
+}
+
+function createRoomInternalError(value: unknown): CreateRoomAcknowledgement {
+  const commandId = getCommandId(value);
+  const response = parseCreateRoomErrorAcknowledgement({
+    status: 'error',
+    code: 'INTERNAL_ERROR',
+    message: 'Room creation failed',
+    ...(commandId === undefined ? {} : { commandId }),
+  });
+  if (response === undefined) {
+    throw new Error('Create-room internal error is invalid');
+  }
+  return response;
+}
+
+function createJoinRoomInternalError(value: unknown): JoinRoomAcknowledgement {
+  const commandId = getCommandId(value);
+  const response = parseJoinRoomErrorAcknowledgement({
+    status: 'error',
+    code: 'INTERNAL_ERROR',
+    message: 'Room join failed',
+    ...(commandId === undefined ? {} : { commandId }),
+  });
+  if (response === undefined) {
+    throw new Error('Join-room internal error is invalid');
+  }
+  return response;
+}
+
+function logCommandError(
+  commandKind: 'create-room' | 'join-room',
+  response: CreateRoomAcknowledgement | JoinRoomAcknowledgement,
+): void {
+  if (response.status === 'error') {
     console.error(
-      `Lobby join-room command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
+      `Lobby ${commandKind} command=${response.commandId ?? 'unknown'} status=error code=${response.code}`,
     );
   }
 }
 
-function getCreateCommandId(payload: unknown): { commandId?: string } {
-  if (
-    typeof payload === 'object' &&
-    payload !== null &&
-    !Array.isArray(payload) &&
-    'commandId' in payload
-  ) {
-    const commandId = parseCommandId(payload.commandId);
-    return commandId === undefined ? {} : { commandId };
+function getCommandId(value: unknown): CommandId | undefined {
+  if (typeof value === 'string') {
+    return parseCommandId(value);
   }
-  return {};
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    'commandId' in value
+  ) {
+    return parseCommandId(value.commandId);
+  }
+  return undefined;
 }
 
 async function handleInfrastructureDatabaseSmoke(

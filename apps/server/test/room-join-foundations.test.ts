@@ -725,6 +725,7 @@ describe('authoritative join-room service', () => {
       repository: baseRepository,
       connectionRegistry: {
         get: () => undefined,
+        listByRoomId: () => [],
         bind: () => {
           throw new Error('binding failed');
         },
@@ -766,6 +767,7 @@ describe('authoritative join-room service', () => {
       repository,
       connectionRegistry: {
         get: () => undefined,
+        listByRoomId: () => [],
         bind: () => undefined,
         unbindForRollback: () => {
           unbindCalls += 1;

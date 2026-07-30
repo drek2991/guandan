@@ -62,7 +62,7 @@ export function projectLobbySnapshot(
   return parsedSnapshot;
 }
 
-function compareLobbyPlayers(
+export function compareLobbyPlayers(
   left: LobbyPlayerState,
   right: LobbyPlayerState,
 ): number {

@@ -7,6 +7,7 @@ import {
   LOBBY_JOIN_ROOM_EVENT,
   type JoinRoomAcknowledgement,
 } from './join-room.js';
+import { LOBBY_SNAPSHOT_EVENT, type LobbySnapshotV1 } from './lobby.js';
 
 export * from './create-room.js';
 export * from './identifiers.js';
@@ -71,7 +72,9 @@ export interface ScaffoldClientToServerEvents {
   ) => void;
 }
 
-export interface ScaffoldServerToClientEvents {}
+export interface ScaffoldServerToClientEvents {
+  [LOBBY_SNAPSHOT_EVENT]: (snapshot: LobbySnapshotV1) => void;
+}
 
 export interface ScaffoldPingResponse {
   status: 'ok';

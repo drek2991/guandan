@@ -13,6 +13,7 @@ import {
 import {
   LobbyConnectionAlreadyBoundError,
   createLobbyConnectionRegistry,
+  type LobbyConnectionMembership,
 } from '../src/lobby/connection-registry.js';
 import {
   LobbyCommandReceiptConflictError,
@@ -317,6 +318,37 @@ describe('connection and receipt registries', () => {
     assert.equal(registry.unbindForRollback('socket-a', binding), true);
   });
 
+  it('lists immutable room-isolated memberships in binding order', () => {
+    const registry = createLobbyConnectionRegistry();
+    registry.bind('socket-a', { roomId: ROOM_ID, playerId: PLAYER_ID });
+    registry.bind('socket-b', {
+      roomId: SECOND_ROOM_ID,
+      playerId: SECOND_PLAYER_ID,
+    });
+    registry.bind('socket-c', { roomId: ROOM_ID, playerId: SECOND_PLAYER_ID });
+
+    const memberships = registry.listByRoomId(ROOM_ID);
+    assert.deepEqual(memberships, [
+      { socketId: 'socket-a', roomId: ROOM_ID, playerId: PLAYER_ID },
+      { socketId: 'socket-c', roomId: ROOM_ID, playerId: SECOND_PLAYER_ID },
+    ]);
+    assert.equal(Object.isFrozen(memberships), true);
+    assert.equal(Object.isFrozen(memberships[0]), true);
+    assert.throws(() => {
+      (memberships as LobbyConnectionMembership[]).push({
+        socketId: 'socket-d',
+        roomId: ROOM_ID,
+        playerId: PLAYER_ID,
+      });
+    }, TypeError);
+    assert.equal(registry.listByRoomId(SECOND_ROOM_ID).length, 1);
+  });
+
+  it('rejects malformed room IDs when listing memberships', () => {
+    const registry = createLobbyConnectionRegistry();
+    assert.throws(() => registry.listByRoomId('invalid'));
+  });
+
   it('rejects replacing an existing command receipt', () => {
     const store = createLobbyCommandReceiptStore();
     const success = createHarness().service.create('socket-a', COMMAND);
@@ -516,6 +548,7 @@ describe('authoritative create-room service', () => {
       roomCodeAllocator: createRoomCodeAllocator(repository, () => 'ABC234'),
       connectionRegistry: {
         get: () => undefined,
+        listByRoomId: connectionRegistry.listByRoomId,
         bind: connectionRegistry.bind,
         unbindForRollback: connectionRegistry.unbindForRollback,
       },

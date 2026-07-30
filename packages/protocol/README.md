@@ -21,7 +21,9 @@ The snapshot never exposes internal display-name keys, join order, password mate
 
 M1-002 adds the exact `lobby:create-room` event, normalized create command, revision-0 success contract, and create-specific structured errors. The command contains only command ID, display name, starting level, and turn timer; all room/player authority remains server generated. See [`docs/m1-002-authoritative-room-creation.md`](../../docs/m1-002-authoritative-room-creation.md).
 
-M1-003 adds the exact `lobby:join-room` event, strict room-code plus normalized-name command, revision-1-or-later non-host success contract, and join-specific structured errors. The client supplies no room/player authority, settings, password, seat, readiness, connection, or join-order fields. Create and join command IDs are globally unique in one runtime. Password access, broadcasts, later lobby mutations, persistence, authentication, gameplay contracts, and mobile UI remain unimplemented. See [`docs/m1-003-authoritative-room-join.md`](../../docs/m1-003-authoritative-room-join.md).
+M1-003 adds the exact `lobby:join-room` event, strict room-code plus normalized-name command, revision-1-or-later non-host success contract, and join-specific structured errors. The client supplies no room/player authority, settings, password, seat, readiness, connection, or join-order fields. Create and join command IDs are globally unique in one runtime. Password access, later lobby mutations, persistence, authentication, gameplay contracts, and mobile UI remain unimplemented. See [`docs/m1-003-authoritative-room-join.md`](../../docs/m1-003-authoritative-room-join.md).
+
+M1-004 adds the canonical server-to-client `lobby:snapshot` event carrying exactly one existing `LobbySnapshotV1` payload with no event acknowledgement. The protocol package remains independent from Socket.IO and adds no transport envelope or duplicate parser. The server projects the player-specific payload; mobile snapshot subscription remains unimplemented. See [`docs/m1-004-lobby-snapshot-delivery.md`](../../docs/m1-004-lobby-snapshot-delivery.md).
 
 Run from the repository root:
 
